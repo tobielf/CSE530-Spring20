@@ -28,9 +28,11 @@
 typedef struct rb_node rb_node_t;
 typedef struct rb_root rb_root_t;
 
-typedef rb_node_t *(*ops_func)(const rb_root_t *);
+typedef rb_node_t *(*seek_func)(const rb_root_t *);
+typedef rb_node_t *(*move_func)(const rb_node_t *);
 
-ops_func rb_ops[] = {rb_first, rb_last};
+seek_func rb_seek[] = {rb_first, rb_last};
+move_func rb_move[] = {rb_next , rb_prev};
 
 /** hash node structure */
 typedef struct my_node {
@@ -126,12 +128,8 @@ static int dev_release(struct inode *i, struct file *filp) {
 static ssize_t dev_read(struct file *filp, char *buf,
                         size_t count, loff_t *ppos) {
         rb_object_t obj;
-        // my_node_t *cur;
-        // struct hlist_node *tmp;
-        // struct rb_dev *devp = filp->private_data;
-        // struct rb_root *root = &devp->root;
-        // struct rb_node *node;
-        int found = 0;
+        struct rb_dev *devp = filp->private_data;
+        struct rb_node *cursor = devp->cursor;
 
         // Security: comparing the count with sizeof(obj), take the min one.
         count = min(count, sizeof(rb_object_t));
@@ -139,14 +137,19 @@ static ssize_t dev_read(struct file *filp, char *buf,
         if (copy_from_user(&obj, buf, count))
                 return -EFAULT;
 
-        if (!found)
+        if (cursor == NULL)
                 return -EINVAL;
+
+        obj.key = rb_entry(cursor, struct my_node, next)->data.key;
+        obj.data = rb_entry(cursor, struct my_node, next)->data.data;
         // Check return value
         // In both cases, the return value is the amount of memory still 
         // to be copied. The code looks for this error return, and
         // returns -EFAULT to the user if it’s not 0.
         if (copy_to_user(buf, &obj, count))
                 return -EFAULT;
+
+        devp->cursor = rb_move[devp->read_dir](cursor);
 
         return count;
 }
@@ -175,6 +178,8 @@ static ssize_t dev_write(struct file *filp, const char *buf,
         // delete operation
         if (obj.data == 0) {
                 if (cur != NULL) {
+                        if (&cur->next == devp->cursor)
+                                devp->cursor = rb_move[devp->read_dir](devp->cursor);
                         rb_erase(&cur->next, root);
                         kfree(cur);
                 }
@@ -218,7 +223,7 @@ static long dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
                                 return -EINVAL;
                         if (d != devp->read_dir) {
                                 devp->read_dir = d;
-                                devp->cursor = rb_ops[d](&devp->root);
+                                devp->cursor = rb_seek[d](&devp->root);
                         }
                         break;
                 default:
@@ -253,6 +258,7 @@ static int rb530_init(void) {
                 // Create rbtree
                 dev[i]->root.rb_node = NULL;
                 dev[i]->read_dir = 0;
+                dev[i]->cursor = NULL;
                 // Create cdev
                 cdev_init(&dev[i]->cdev, &fops);
                 dev[i]->cdev.owner = THIS_MODULE;
