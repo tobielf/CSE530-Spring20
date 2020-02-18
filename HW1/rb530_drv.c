@@ -221,10 +221,9 @@ static long dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
                                 return -EFAULT;
                         if ( (d != ASC_ORDER) && (d != DES_ORDER) )
                                 return -EINVAL;
-                        if (d != devp->read_dir) {
-                                devp->read_dir = d;
-                                devp->cursor = rb_seek[d](&devp->root);
-                        }
+
+                        devp->read_dir = d;
+                        devp->cursor = rb_seek[d](&devp->root);
                         break;
                 default:
                         return -EINVAL;
@@ -284,6 +283,9 @@ static int rb530_init(void) {
 static void rb530_exit(void) {
         int i;
 
+        struct rb_node *child;
+        struct rb_node *parent;
+        struct rb_root *root;
         printk(KERN_ALERT "Goodbye, world\n");
 
         // Destroy devices
@@ -294,8 +296,19 @@ static void rb530_exit(void) {
                 cdev_del(&dev[i]->cdev);
                 // No one can access anymore.
                 printk(KERN_ALERT "Removing hash table\n");
-                // Destroy hash table
-                
+                // Destroy rbtree
+                root = &dev[i]->root;
+                child = rb_first(root);
+                parent = NULL;
+
+                while(child) {
+                        struct my_node *stuff;
+                        parent = child;
+                        child = rb_next(parent);
+                        stuff = rb_entry(parent, struct my_node, next);
+                        printk(KERN_INFO "Removing %d\n", stuff->data.key);
+                        kfree(stuff);
+                }
 
                 kfree(dev[i]);
         }
