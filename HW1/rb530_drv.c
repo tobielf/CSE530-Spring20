@@ -17,7 +17,7 @@
 
 #include "common.h"
 
-#include <linux/hashtable.h>
+#include <linux/rbtree.h>
 
 #define DEVICE_NAME_PREFIX "rb530-"
 #define CLASS_NAME "chardrv"
@@ -25,17 +25,26 @@
 #define BUFF_SIZE (16)
 #define HASH_TABLE_SIZE_BITS (7)
 
+typedef struct rb_node rb_node_t;
+typedef struct rb_root rb_root_t;
+
+typedef rb_node_t *(*ops_func)(const rb_root_t *);
+
+ops_func rb_ops[] = {rb_first, rb_last};
+
 /** hash node structure */
 typedef struct my_node {
         rb_object_t data;               /**< Hash node data object */
-        struct hlist_node next;         /**< Next pointer for collision */
+        struct rb_node next;            /**< Next pointer for collision */
 } my_node_t;
 
 /** per device structure */
 struct rb_dev {
         struct cdev cdev;                       /**< The cdev structure */
         char name[BUFF_SIZE];                   /**< Name of the device */
-        DECLARE_HASHTABLE(tbl, HASH_TABLE_SIZE_BITS);   /** Hash table */
+        struct rb_root root;
+        struct rb_node *cursor;
+        int read_dir;                 
 };
 
 static dev_t dev_num = 0;                       /**< Driver Major Number */
@@ -57,6 +66,43 @@ struct file_operations fops = {
         .write = dev_write,
         .unlocked_ioctl = dev_ioctl
 };
+
+static struct my_node *my_rb_search(struct rb_root *root, int value) {
+        struct rb_node *node = root->rb_node;
+
+        while (node) {
+                struct my_node *stuff = rb_entry(node, struct my_node, next);
+
+                if (stuff->data.key > value)
+                        node = node->rb_left;
+                else if (stuff->data.key < value)
+                        node = node->rb_right;
+                else
+                        return stuff;
+        }
+
+        return NULL;
+}
+
+static void my_rb_insert(struct rb_root *root, struct my_node *new) {
+        struct rb_node **link = &root->rb_node;
+        struct rb_node *parent = NULL;
+        int value = new->data.key;
+
+        while(*link) {
+                struct my_node *stuff;
+                parent = *link;
+                stuff = rb_entry(parent, struct my_node, next);
+
+                if (stuff->data.key > value)
+                        link = &parent->rb_left;
+                else
+                        link = &parent->rb_right;
+        }
+
+        rb_link_node(&new->next, parent, link);
+        rb_insert_color(&new->next, root);
+}
 
 static int dev_open(struct inode *i, struct file *filp) {
         struct rb_dev *devp;
@@ -80,9 +126,11 @@ static int dev_release(struct inode *i, struct file *filp) {
 static ssize_t dev_read(struct file *filp, char *buf,
                         size_t count, loff_t *ppos) {
         rb_object_t obj;
-        my_node_t *cur;
-        struct hlist_node *tmp;
-        struct rb_dev *devp = filp->private_data;
+        // my_node_t *cur;
+        // struct hlist_node *tmp;
+        // struct rb_dev *devp = filp->private_data;
+        // struct rb_root *root = &devp->root;
+        // struct rb_node *node;
         int found = 0;
 
         // Security: comparing the count with sizeof(obj), take the min one.
@@ -90,14 +138,6 @@ static ssize_t dev_read(struct file *filp, char *buf,
         // Check return value
         if (copy_from_user(&obj, buf, count))
                 return -EFAULT;
-
-        hash_for_each_possible_safe(devp->tbl, cur, tmp, next, obj.key) {
-                if (cur->data.key == obj.key) {
-                        printk(KERN_ALERT "Found Item\n");
-                        obj.data = cur->data.data;
-                        found = 1;
-                }
-        }
 
         if (!found)
                 return -EINVAL;
@@ -116,8 +156,9 @@ static ssize_t dev_write(struct file *filp, const char *buf,
         volatile int key, data;
         rb_object_t obj;
         my_node_t *cur;
-        struct hlist_node * tmp;
+        // struct hlist_node * tmp;
         struct rb_dev *devp = filp->private_data;
+        struct rb_root *root = &devp->root;
 
         // Security: comparing the count with sizeof(obj), take the min one.
         count = min(count, sizeof(rb_object_t));
@@ -130,35 +171,27 @@ static ssize_t dev_write(struct file *filp, const char *buf,
 
         printk("Object received %d %d \n", obj.key, obj.data);
 
+        cur = my_rb_search(root, key);
         // delete operation
         if (obj.data == 0) {
-                hash_for_each_possible_safe(devp->tbl, cur, tmp, next, obj.key) {
-                        if (cur->data.key == obj.key) {
-                                printk(KERN_ALERT "Deleted Item\n");
-                                hash_del(&cur->next);
-                                kfree(cur);
-                        }
+                if (cur != NULL) {
+                        rb_erase(&cur->next, root);
+                        kfree(cur);
                 }
         } else {
-                my_node_t *node;
-                int found = 0;
                 // add/update operation
                 // update before add
-                hash_for_each_possible_safe(devp->tbl, cur, tmp, next, obj.key) {
-                        if (cur->data.key == obj.key) {
-                                printk(KERN_ALERT "Duplicated Item\n");
-                                cur->data.data = obj.data;
-                                found = 1;
-                        }
-                }
-                if (!found) {
-                        node = kmalloc(sizeof(my_node_t), GFP_KERNEL);
-                        if (node == NULL)
+                if (cur != NULL) {
+                        cur->data.key = key;
+                        cur->data.data = data;
+                } else {
+                        cur = kmalloc(sizeof(my_node_t), GFP_KERNEL);
+                        if (cur == NULL)
                                 return -ENOMEM;
 
-                        node->data.key = obj.key;
-                        node->data.data = obj.data;
-                        hash_add_rcu(devp->tbl, &node->next, node->data.key);
+                        cur->data.key = key;
+                        cur->data.data = data;
+                        my_rb_insert(root, cur);
                 }
         }
 
@@ -173,27 +206,20 @@ static ssize_t dev_write(struct file *filp, const char *buf,
 
 static long dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
         struct rb_dev *devp = filp->private_data;
-        struct hlist_node * tmp;
-        my_node_t *cur;
-        dump_arg_t d;
-        int cnt = 0;
+        // struct hlist_node * tmp;
+        // my_node_t *cur;
+        int d;
 
         switch (cmd) {
                 case RB530_DUMP_ELEMENTS:
-                        if (copy_from_user(&d, (dump_arg_t *)arg, sizeof(dump_arg_t)))
+                        if (copy_from_user(&d, (int *)arg, sizeof(int)))
                                 return -EFAULT;
-                        if (d.n >= HASH_SIZE(devp->tbl))
+                        if ( (d != ASC_ORDER) && (d != DES_ORDER) )
                                 return -EINVAL;
-                        hlist_for_each_entry_safe(cur, tmp, &devp->tbl[d.n], next) {
-                                if (cnt < DUMP_SIZE) {
-                                        d.object_array[cnt].key = cur->data.key;
-                                        d.object_array[cnt].data = cur->data.data;
-                                        cnt++;
-                                }
+                        if (d != devp->read_dir) {
+                                devp->read_dir = d;
+                                devp->cursor = rb_ops[d](&devp->root);
                         }
-                        d.copied = cnt;
-                        if (copy_to_user((dump_arg_t *)arg, &d, sizeof(dump_arg_t)))
-                                return -EFAULT;
                         break;
                 default:
                         return -EINVAL;
@@ -222,8 +248,11 @@ static int rb530_init(void) {
                 }
                 snprintf(dev[i]->name, BUFF_SIZE, "%s%d", DEVICE_NAME_PREFIX, i);
 
-                // Create hash table
-                hash_init(dev[i]->tbl);
+                // // Create hash table
+                // hash_init(dev[i]->tbl);
+                // Create rbtree
+                dev[i]->root.rb_node = NULL;
+                dev[i]->read_dir = 0;
                 // Create cdev
                 cdev_init(&dev[i]->cdev, &fops);
                 dev[i]->cdev.owner = THIS_MODULE;
@@ -248,12 +277,11 @@ static int rb530_init(void) {
 
 static void rb530_exit(void) {
         int i;
-        my_node_t *obj;
+
         printk(KERN_ALERT "Goodbye, world\n");
 
         // Destroy devices
         for (i = 0; i < DEVICE_NUMBER; ++i) {
-                int bkt;
                 // Remove device from file system first
                 device_destroy(s_dev_class, MKDEV(MAJOR(dev_num), i));
                 // Remove from cdev chain
@@ -261,11 +289,8 @@ static void rb530_exit(void) {
                 // No one can access anymore.
                 printk(KERN_ALERT "Removing hash table\n");
                 // Destroy hash table
-                hash_for_each(dev[i]->tbl, bkt, obj, next) {
-                        printk(KERN_INFO "Delete %d %d\n", obj->data.key, obj->data.data);
-                        hash_del(&obj->next);
-                        kfree(obj);
-                }
+                
+
                 kfree(dev[i]);
         }
 

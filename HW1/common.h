@@ -7,6 +7,8 @@
 #include <linux/ioctl.h>
 
 #define DUMP_SIZE (10)
+#define ASC_ORDER (0)
+#define DES_ORDER (1)
 /** rbtree table object */
 typedef struct rb_object {
         int key;                        /** Key of the rbtree object */
@@ -20,7 +22,7 @@ typedef struct dump_arg {
         rb_object_t object_array[DUMP_SIZE] ;   /** to retrieve at most 10 objects from the n-th device */
 } dump_arg_t;
 
-#define RB530_DUMP_ELEMENTS _IOWR('d', 1, dump_arg_t *)
+#define RB530_DUMP_ELEMENTS _IOWR('d', 1, int *)
 
 typedef struct mp_debug_info {
         void *addr;                     /** the address of the kprobe */

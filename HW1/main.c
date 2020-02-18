@@ -153,9 +153,8 @@ int main(int argc, char const *argv[]) {
         pthread_join(tid_data[i], NULL);
     }
 
-    printf("After Thread\n"); 
+    printf("After Thread\n");
 
-    // dump data from hash table, 8 elements per bucket.
     for (i = 0; i < 2; i++) {
         fd = open(dev_path[i], O_RDWR);
         if (fd < 0)
@@ -217,17 +216,11 @@ static int rand_data() {
 static void dump(int fd) {
     int i;
     for (i = 0; i < BUCKET_SIZE; i++) {
-        int j;
-        dump_arg_t d;
-        d.n = i;
+        int d;
+        d = i;
         if (ioctl(fd, RB530_DUMP_ELEMENTS, &d) == -1) {
             printf("%d\n", errno);
             continue;
-        }
-        printf("Bucket: %d\n", i);
-        for (j = 0; j < d.copied; j++) {
-            printf("key: %d value: %d\n", 
-                    d.object_array[j].key, d.object_array[j].data);
         }
     }
 }

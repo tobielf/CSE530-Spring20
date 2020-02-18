@@ -26,12 +26,12 @@ int main(int argc, char const *argv[]) {
     obj.key = 0;
     obj.data = 1;
 
-    fd_probe = open("/dev/mprobe", O_RDWR);
+    fd_probe = open("/dev/rbprobe", O_RDWR);
     if (fd_probe < 0) {
         printf("mprobe already opened by others %d\n", errno);
     }
 
-    fd = open("/dev/rb530-0", O_RDWR);
+    fd = open("/dev/rb530-1", O_RDWR);
 
     if (fd < 0)
         return ENODEV;
@@ -53,12 +53,13 @@ int main(int argc, char const *argv[]) {
         obj.data = atoi(argv[3]);
         write(fd, &obj, sizeof(struct rb_object));
     } else if (strcmp("dump", argv[1]) == 0) {
-        dump_arg_t d;
-        d.n = 48;
+        if (argc < 3)
+            return EINVAL;
+        int d;
+        d = atoi(argv[2]);
         if (ioctl(fd, RB530_DUMP_ELEMENTS, &d) == -1) {
             printf("%d\n", errno);
         }
-        printf("%d %d\n", d.object_array[0].key, d.object_array[0].data);
     } else if (strcmp("probe", argv[1]) == 0) {
         unsigned int offset;
         if (argc < 3)
