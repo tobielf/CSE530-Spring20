@@ -16,14 +16,13 @@
 #include <asm/uaccess.h>
 
 #include "common.h"
+#include "rb530_drv.h"
 
 #include <linux/rbtree.h>
 
-#define DEVICE_NAME_PREFIX "rb530-"
-#define CLASS_NAME "chardrv"
+#define DEVICE_NAME_PREFIX "rb530_dev"
+#define CLASS_NAME "rb530"
 #define DEVICE_NUMBER (2)
-#define BUFF_SIZE (16)
-#define HASH_TABLE_SIZE_BITS (7)
 
 typedef struct rb_node rb_node_t;
 typedef struct rb_root rb_root_t;
@@ -33,21 +32,6 @@ typedef rb_node_t *(*move_func)(const rb_node_t *);
 
 seek_func rb_seek[] = {rb_first, rb_last};
 move_func rb_move[] = {rb_next , rb_prev};
-
-/** hash node structure */
-typedef struct my_node {
-        rb_object_t data;               /**< Hash node data object */
-        struct rb_node next;            /**< Next pointer for collision */
-} my_node_t;
-
-/** per device structure */
-struct rb_dev {
-        struct cdev cdev;                       /**< The cdev structure */
-        char name[BUFF_SIZE];                   /**< Name of the device */
-        struct rb_root root;
-        struct rb_node *cursor;
-        int read_dir;                 
-};
 
 static dev_t dev_num = 0;                       /**< Driver Major Number */
 static struct class *s_dev_class = NULL;        /**< Driver Class */
@@ -156,7 +140,7 @@ static ssize_t dev_read(struct file *filp, char *buf,
 
 static ssize_t dev_write(struct file *filp, const char *buf,
                 size_t count, loff_t *ppos) {
-        volatile int key, data;
+        volatile int key = 0xdead, data = 0xbeef;
         rb_object_t obj;
         my_node_t *cur;
         // struct hlist_node * tmp;
@@ -172,7 +156,7 @@ static ssize_t dev_write(struct file *filp, const char *buf,
         key = obj.key;
         data = obj.data;
 
-        printk("Object received %d %d \n", obj.key, obj.data);
+        printk("Object received %d %d \n", key, data);
 
         cur = my_rb_search(root, key);
         // delete operation
@@ -211,8 +195,6 @@ static ssize_t dev_write(struct file *filp, const char *buf,
 
 static long dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
         struct rb_dev *devp = filp->private_data;
-        // struct hlist_node * tmp;
-        // my_node_t *cur;
         int d;
 
         switch (cmd) {
@@ -223,7 +205,8 @@ static long dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
                                 return -EINVAL;
 
                         devp->read_dir = d;
-                        devp->cursor = rb_seek[d](&devp->root);
+                        if (devp->cursor == NULL)
+                                devp->cursor = rb_seek[d](&devp->root);
                         break;
                 default:
                         return -EINVAL;
@@ -252,12 +235,11 @@ static int rb530_init(void) {
                 }
                 snprintf(dev[i]->name, BUFF_SIZE, "%s%d", DEVICE_NAME_PREFIX, i);
 
-                // // Create hash table
-                // hash_init(dev[i]->tbl);
                 // Create rbtree
                 dev[i]->root.rb_node = NULL;
-                dev[i]->read_dir = 0;
+                dev[i]->read_dir = ASC_ORDER;
                 dev[i]->cursor = NULL;
+
                 // Create cdev
                 cdev_init(&dev[i]->cdev, &fops);
                 dev[i]->cdev.owner = THIS_MODULE;
@@ -295,7 +277,7 @@ static void rb530_exit(void) {
                 // Remove from cdev chain
                 cdev_del(&dev[i]->cdev);
                 // No one can access anymore.
-                printk(KERN_ALERT "Removing hash table\n");
+                printk(KERN_ALERT "Removing rb_tree\n");
                 // Destroy rbtree
                 root = &dev[i]->root;
                 child = rb_first(root);

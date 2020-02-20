@@ -3,6 +3,7 @@
  * @brief debugging tool using kprobe
  * @author Xiangyu Guo
  * @reference http://shell-storm.org/blog/Trace-and-debug-the-Linux-Kernel-functons/kprobe_example.c
+ *            https://www.kernel.org/doc/Documentation/kprobes.txt
  */
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -19,11 +20,14 @@
 
 #include <linux/kprobes.h>
 
+#include <linux/rbtree.h>
+
 #include <asm/ptrace.h>
 #include <asm/atomic.h>
 #include <linux/thread_info.h>
 
 #include "common.h"
+#include "rb530_drv.h"
 #include "ring_buff.h"
 
 #define DEVICE_NAME "rbprobe"
@@ -67,7 +71,12 @@ static int handler_pre(struct kprobe *p, struct pt_regs *regs)
         struct thread_info *ti = current_thread_info();
         mp_info_t *info;
         unsigned long bkt;
-        rb_object_t *obj;
+        int cnt = 0;
+
+        struct file *filp;
+        struct rb_node *child;
+        struct rb_root *root;
+        struct rb_dev *devp;
 
         info = kmalloc(sizeof(mp_info_t), GFP_KERNEL);
         info->addr = p->addr;
@@ -78,25 +87,48 @@ static int handler_pre(struct kprobe *p, struct pt_regs *regs)
 #endif
         info->timestamp = rdtsc();
         // ToDo: dump objects (local variable)
+        bkt = regs->bp;
+        if (p->offset >= 0x03)
+                bkt = *(unsigned long *)bkt;
+
+        filp = (struct file*)*(unsigned long*)(bkt - 0x08);
+        devp = filp->private_data;
+        root = &devp->root;
+
+        // printk(KERN_INFO "filp address: %p\n", filp);
+        // printk(KERN_INFO "root address: %p\n", root);
+        child = rb_first(root);
+        while(child && cnt < DUMP_SIZE) {
+                struct my_node *stuff;
+                stuff = rb_entry(child, struct my_node, next);
+                printk(KERN_INFO "Reading %d\n", stuff->data.key);
+                info->objects.object_array[cnt].key = stuff->data.key;
+                info->objects.object_array[cnt].data = stuff->data.data;
+                child = rb_next(child);
+                ++cnt;
+        }
+        info->objects.copied = cnt;
+
         ring_buff_put(dev.ring_buff, info);
 
-        printk(KERN_INFO "pre_handler: p->addr = 0x%p, ip = %lx,"
-                        " flags = 0x%lx time: %lld  \n",
-                p->addr, regs->ip, regs->flags, rdtsc());
-        for (bkt = regs->bp; bkt >= regs->sp - 8; bkt-=4) {
-                printk(KERN_INFO "address 0x%lx, value 0x%x", bkt, *(int *)bkt);
-        }
+        // printk(KERN_INFO "pre_handler: p->addr = 0x%p, offset = 0x%x,ip = %lx,"
+        //                 " flags = 0x%lx time: %lld  \n",
+        //         p->addr, p->offset, regs->ip, regs->flags, rdtsc());
+        // printk(KERN_INFO "bp = %lx sp = %lx\n", regs->bp, regs->sp);
 
-        //printk(KERN_INFO "key: %d, data: %d\n", *(int *)(regs->bp - 0x28), *(int *)(regs->bp - 0x24));
-        printk(KERN_INFO "key: %ld, data: %ld\n", regs->si, regs->dx);
+        // for (bkt = regs->bp; bkt >= kernel_stack_pointer(regs); bkt-=4) {
+        //         printk(KERN_INFO "address 0x%lx, value 0x%x\n", bkt, *(int *)bkt);
+        // }
 
-        printk(KERN_INFO "DI: %lx SI: %lx DX: %lx CX: %lx\n", regs->di, regs->si, regs->dx, regs->cx);
-        printk(KERN_INFO "EBP:%lx ESP:%lx\n", regs->bp, kernel_stack_pointer(regs));
+        // //printk(KERN_INFO "key: %d, data: %d\n", *(int *)(regs->bp - 0x28), *(int *)(regs->bp - 0x24));
+        // printk(KERN_INFO "key: %ld, data: %ld\n", regs->si, regs->dx);
+
+        // printk(KERN_INFO "DI: %lx SI: %lx DX: %lx CX: %lx\n", regs->di, regs->si, regs->dx, regs->cx);
+        // printk(KERN_INFO "EBP:%lx ESP:%lx\n", regs->bp, kernel_stack_pointer(regs));
         // stack tracing hackery to print local variable values
-        printk(KERN_INFO "%ld", bkt);
         //
         /* A dump_stack() here will give a stack backtrace */
-        //dump_stack();
+        // dump_stack();
         return 0;
 }
 
@@ -182,24 +214,25 @@ static ssize_t rbprobe_write(struct file *filp, const char *buf,
                         size_t count, loff_t * off) {
         /** Register kprobe based on the address getting from the user*/
         int ret;
-        unsigned int offset;
+        rb_probe_t probe;
         kprobe_list_t *obj;
 
         obj = kmalloc(sizeof(kprobe_list_t), GFP_KERNEL);
         if (obj == NULL)
                 return -ENOMEM;
 
-        count = min(sizeof(unsigned int), count);
+        count = min(sizeof(rb_probe_t), count);
         // get offset from user
-        if (copy_from_user(&offset, buf, count))
+        if (copy_from_user(&probe, buf, count))
                 return -EFAULT;
 
-        printk(KERN_INFO "Offset: %x\n", offset);
+        printk(KERN_INFO "OP_code: %d\n", probe.op_code);
+        printk(KERN_INFO "Offset: %x\n", probe.offset);
 
         obj->kp.pre_handler   = handler_pre;
         obj->kp.post_handler  = handler_post;
         obj->kp.fault_handler = handler_fault;
-        obj->kp.symbol_name   = "dev_write";
+        obj->kp.symbol_name   = func_name[probe.op_code];
         obj->kp.addr = NULL;
         // obj->kp.symbol_name = NULL;
         // obj->kp.addr = (kprobe_opcode_t *) kallsyms_lookup_name("dev_write");
@@ -207,7 +240,7 @@ static ssize_t rbprobe_write(struct file *filp, const char *buf,
         // if the offset into the symbol to install
         // a probepoint is known. This field is used
         // to calculate the probepoint.
-        obj->kp.offset = offset;
+        obj->kp.offset = probe.offset;
 
         INIT_LIST_HEAD(&obj->next);
 

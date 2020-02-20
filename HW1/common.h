@@ -9,11 +9,20 @@
 #define DUMP_SIZE (10)
 #define ASC_ORDER (0)
 #define DES_ORDER (1)
-/** rbtree table object */
+
+const char* func_name[] = { "dev_read", "dev_write" };
+
+/** rbtree object */
 typedef struct rb_object {
         int key;                        /** Key of the rbtree object */
         int data;                       /** Data of the rbtree object */
 } rb_object_t;
+
+/** rbprobe object */
+typedef struct rb_probe {
+        int op_code;                    /** Function the user want to probe */
+        int offset;                     /** Offset inside the function */
+} rb_probe_t;
 
 /** dump structure */
 typedef struct dump_arg {

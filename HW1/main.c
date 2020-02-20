@@ -22,7 +22,7 @@
 #define MOD_BASE        (100007)
 #define BUCKET_SIZE     (128)
 
-const static char* dev_path[] = {"/dev/rb530-0", "/dev/rb530-1"};
+const static char* dev_path[] = {"/dev/rb530_dev1", "/dev/rb530_dev2"};
 
 typedef void(*ops_func)(int, int, int);
 
@@ -91,7 +91,7 @@ void *debug_thread(void *vargp) {
     int ret;
     char command[BUFF_SIZE];
 
-    fd = open("/dev/mprobe", O_RDWR);
+    fd = open("/dev/rbprobe", O_RDWR);
     if (fd < 0) {
         printf("Already opened %d\n", errno);
         exit(EBUSY);
