@@ -1,0 +1,329 @@
+test cases:
+
+root@quark:~# insmod hcsr04.ko n=2
+root@quark:~# ./hcsr04
+Number of HCSR devices detected: 2
+Testing on invalid read....Passed!
+Testing on pins setup......Passed!
+Testing on read from empty buffer....Passed!
+Distance 2.993717(meter)
+Testing on write more than 5 times....
+Writing ... 0
+Writing ... 1
+Writing ... 2
+Writing ... 3
+Writing ... 4
+Writing ... 5
+Testing on read from full buffer....Passed!
+Distance 2.989274(meter)
+Testing on write more than 5 times with non-zero value....
+Writing ... 0
+Writing ... 1
+Writing ... 2
+Writing ... 3
+Writing ... 4
+Writing ... 5
+Testing on read from buffer with only one element....Passed!
+Distance 2.988902(meter)
+Testing on set a delta less than 60ms.....
+Passed!
+Setup params error, Bad address
+Testing on set a delta to 2000ms.....
+Passed!
+Testing on write with a long delay....
+Passed!
+Job started...
+Passed!
+Write error, Device or resource busy
+Testing on read from a blocked I/O....Passed!
+Distance 2.990469(meter)
+
+dmesg output:
+
+[ 3329.290690] No result, going to request one
+[ 3329.295116] Going to run the thread
+[ 3329.299020] irq no is: 55
+[ 3329.306516] m 12, delta 2000
+[ 3331.310146] sampling 12
+[ 3333.320132] sampling 11
+[ 3335.330144] sampling 10
+[ 3337.340133] sampling 9
+[ 3339.350199] sampling 8
+[ 3341.360144] sampling 7
+[ 3343.370125] sampling 6
+[ 3345.380126] sampling 5
+[ 3347.390127] sampling 4
+[ 3349.400126] sampling 3
+[ 3351.410127] sampling 2
+[ 3353.420124] sampling 1
+[ 3353.422526] Total interrupts 24
+[ 3353.425696] diff 7038910
+[ 3353.428254] diff 7028015
+[ 3353.430928] diff 7028883
+[ 3353.433495] diff 7038739
+[ 3353.436050] diff 7040439
+[ 3353.438605] diff 7049803
+[ 3353.441245] diff 7048259
+[ 3353.443810] diff 7029271
+[ 3353.446366] diff 7029027
+[ 3353.448920] diff 7049315
+[ 3353.451557] diff 7029311
+[ 3353.454123] diff 7018507
+[ 3353.456684] large: 7049803 small: 7018507 sum 84428479
+[ 3353.461933] Result: 7036016
+[ 3388.411381] Goodbye, world
+[ 3388.414133] Total interrupts 152
+[ 3403.874025] Registering 2 Devices
+[ 3403.877667] Creating HCSR_0
+[ 3403.896924] Creating HCSR_1
+[ 3408.664459] shield: 10, logic: 10, dir: 26, mux1: 74, mux2: -1, mux: 0
+[ 3408.672038] shield: 6, logic: 1, dir: 20, mux1: 68, mux2: -1, mux: 0
+[ 3408.683078] No result, going to request one
+[ 3408.687311] Going to run the thread
+[ 3408.693608] irq no is: 55
+[ 3408.696345] m 4, delta 200
+[ 3408.900122] sampling 4
+[ 3409.110129] sampling 3
+[ 3409.320146] sampling 2
+[ 3409.530134] sampling 1
+[ 3409.532535] Total interrupts 8
+[ 3409.535618] diff 7038914
+[ 3409.538175] diff 7058727
+[ 3409.540851] diff 7049093
+[ 3409.543419] diff 7038987
+[ 3409.545980] large: 7058727 small: 7038914 sum 28185721
+[ 3409.551548] Result: 7044040
+[ 3410.310464] count: 4 sizeof: 4
+[ 3410.313562] The value is 0
+[ 3410.316290] Going to run the thread
+[ 3410.324395] irq no is: 55
+[ 3410.327134] m 4, delta 200
+[ 3410.530129] sampling 4
+[ 3410.740131] sampling 3
+[ 3410.950128] sampling 2
+[ 3411.160138] sampling 1
+[ 3411.162540] Total interrupts 8
+[ 3411.165624] diff 7035704
+[ 3411.168180] diff 7028779
+[ 3411.170856] diff 7087719
+[ 3411.173424] diff 7048287
+[ 3411.175985] large: 7087719 small: 7028779 sum 28200489
+[ 3411.181239] Result: 7041995
+[ 3411.334514] count: 4 sizeof: 4
+[ 3411.337613] The value is 0
+[ 3411.340464] Going to run the thread
+[ 3411.349009] irq no is: 55
+[ 3411.353536] m 4, delta 200
+[ 3411.560227] sampling 4
+[ 3411.770140] sampling 3
+[ 3411.980204] sampling 2
+[ 3412.190135] sampling 1
+[ 3412.192535] Total interrupts 8
+[ 3412.195618] diff 7027906
+[ 3412.198175] diff 7038603
+[ 3412.200851] diff 7028571
+[ 3412.203419] diff 7068591
+[ 3412.205980] large: 7068591 small: 7027906 sum 28163671
+[ 3412.211234] Result: 7033587
+[ 3412.349141] count: 4 sizeof: 4
+[ 3412.352313] The value is 0
+[ 3412.355052] Going to run the thread
+[ 3412.364300] irq no is: 55
+[ 3412.367040] m 4, delta 200
+[ 3412.570151] sampling 4
+[ 3412.780140] sampling 3
+[ 3412.990134] sampling 2
+[ 3413.200148] sampling 1
+[ 3413.202550] Total interrupts 8
+[ 3413.205633] diff 7026497
+[ 3413.208190] diff 7029269
+[ 3413.210865] diff 7028779
+[ 3413.213432] diff 7039551
+[ 3413.215993] large: 7039551 small: 7026497 sum 28124096
+[ 3413.221247] Result: 7029024
+[ 3413.364407] count: 4 sizeof: 4
+[ 3413.367506] The value is 0
+[ 3413.370356] Going to run the thread
+[ 3413.379241] irq no is: 55
+[ 3413.383476] m 4, delta 200
+[ 3413.590124] sampling 4
+[ 3413.800142] sampling 3
+[ 3414.010138] sampling 2
+[ 3414.220147] sampling 1
+[ 3414.222547] Total interrupts 8
+[ 3414.225631] diff 7048310
+[ 3414.228188] diff 7058899
+[ 3414.230864] diff 7048911
+[ 3414.233431] diff 7069103
+[ 3414.235992] large: 7069103 small: 7048310 sum 28225223
+[ 3414.241323] Result: 7053905
+[ 3414.379073] count: 4 sizeof: 4
+[ 3414.382245] The value is 0
+[ 3414.384984] Going to run the thread
+[ 3414.394152] irq no is: 55
+[ 3414.396891] m 4, delta 200
+[ 3414.600173] sampling 4
+[ 3414.810196] sampling 3
+[ 3415.020138] sampling 2
+[ 3415.230147] sampling 1
+[ 3415.232549] Total interrupts 8
+[ 3415.235633] diff 7041256
+[ 3415.238189] diff 7028471
+[ 3415.240865] diff 7048879
+[ 3415.243433] diff 7018607
+[ 3415.245994] large: 7048879 small: 7018607 sum 28137213
+[ 3415.251248] Result: 7034863
+[ 3415.394278] count: 4 sizeof: 4
+[ 3415.397376] The value is 0
+[ 3415.400227] Going to run the thread
+[ 3415.409066] irq no is: 55
+[ 3415.413324] m 4, delta 200
+[ 3415.620125] sampling 4
+[ 3415.830142] sampling 3
+[ 3416.040138] sampling 2
+[ 3416.250137] sampling 1
+[ 3416.252538] Total interrupts 8
+[ 3416.255622] diff 7028978
+[ 3416.258179] diff 7029087
+[ 3416.260855] diff 7038587
+[ 3416.263423] diff 7028891
+[ 3416.265984] large: 7038587 small: 7028891 sum 28125543
+[ 3416.271239] Result: 7029032
+[ 3416.409140] count: 4 sizeof: 4
+[ 3416.412321] The value is 1
+[ 3416.415062] Going to clean up the ring buff
+[ 3416.419276] Going to run the thread
+[ 3416.430471] irq no is: 55
+[ 3416.433417] m 4, delta 200
+[ 3416.640136] sampling 4
+[ 3416.850141] sampling 3
+[ 3417.060128] sampling 2
+[ 3417.270146] sampling 1
+[ 3417.272548] Total interrupts 8
+[ 3417.275632] diff 7039366
+[ 3417.278189] diff 7020023
+[ 3417.280864] diff 7028927
+[ 3417.283431] diff 7038673
+[ 3417.285992] large: 7039366 small: 7020023 sum 28126989
+[ 3417.291246] Result: 7033800
+[ 3417.430600] count: 4 sizeof: 4
+[ 3417.433698] The value is 1
+[ 3417.436428] Going to clean up the ring buff
+[ 3417.440760] Going to run the thread
+[ 3417.450916] irq no is: 55
+[ 3417.453853] m 4, delta 200
+[ 3417.660136] sampling 4
+[ 3417.870125] sampling 3
+[ 3418.080142] sampling 2
+[ 3418.290146] sampling 1
+[ 3418.292547] Total interrupts 8
+[ 3418.295631] diff 7034068
+[ 3418.298187] diff 7038679
+[ 3418.300861] diff 7018979
+[ 3418.303429] diff 7028523
+[ 3418.305990] large: 7038679 small: 7018979 sum 28120249
+[ 3418.311242] Result: 7031295
+[ 3418.451044] count: 4 sizeof: 4
+[ 3418.454143] The value is 1
+[ 3418.456873] Going to clean up the ring buff
+[ 3418.461205] Going to run the thread
+[ 3418.471287] irq no is: 55
+[ 3418.474223] m 4, delta 200
+[ 3418.680138] sampling 4
+[ 3418.890127] sampling 3
+[ 3419.100139] sampling 2
+[ 3419.310147] sampling 1
+[ 3419.312547] Total interrupts 8
+[ 3419.315631] diff 7074008
+[ 3419.318188] diff 7018683
+[ 3419.320862] diff 7038063
+[ 3419.323429] diff 7028717
+[ 3419.325990] large: 7074008 small: 7018683 sum 28159471
+[ 3419.331243] Result: 7033390
+[ 3419.471415] count: 4 sizeof: 4
+[ 3419.474513] The value is 1
+[ 3419.477243] Going to clean up the ring buff
+[ 3419.481574] Going to run the thread
+[ 3419.491756] irq no is: 55
+[ 3419.494691] m 4, delta 200
+[ 3419.700137] sampling 4
+[ 3419.910183] sampling 3
+[ 3420.120140] sampling 2
+[ 3420.330136] sampling 1
+[ 3420.332537] Total interrupts 8
+[ 3420.335621] diff 7035320
+[ 3420.338177] diff 7018893
+[ 3420.340852] diff 7018771
+[ 3420.343419] diff 7058695
+[ 3420.345980] large: 7058695 small: 7018771 sum 28131679
+[ 3420.351233] Result: 7027106
+[ 3420.491867] count: 4 sizeof: 4
+[ 3420.494966] The value is 1
+[ 3420.497695] Going to clean up the ring buff
+[ 3420.502025] Going to run the thread
+[ 3420.512122] irq no is: 55
+[ 3420.515062] m 4, delta 200
+[ 3420.720157] sampling 4
+[ 3420.930128] sampling 3
+[ 3421.140127] sampling 2
+[ 3421.350147] sampling 1
+[ 3421.352549] Total interrupts 8
+[ 3421.355633] diff 7044244
+[ 3421.358190] diff 7048551
+[ 3421.360877] diff 7028863
+[ 3421.363445] diff 7047795
+[ 3421.366006] large: 7048551 small: 7028863 sum 28169453
+[ 3421.371262] Result: 7046019
+[ 3421.512247] count: 4 sizeof: 4
+[ 3421.515346] The value is 1
+[ 3421.518075] Going to clean up the ring buff
+[ 3421.522408] Going to run the thread
+[ 3421.532272] irq no is: 55
+[ 3421.535213] m 4, delta 200
+[ 3421.740136] sampling 4
+[ 3421.950130] sampling 3
+[ 3422.160143] sampling 2
+[ 3422.370126] sampling 1
+[ 3422.372528] Total interrupts 8
+[ 3422.375611] diff 7036804
+[ 3422.378168] diff 7020503
+[ 3422.380842] diff 7028619
+[ 3422.383410] diff 7038607
+[ 3422.385971] large: 7038607 small: 7020503 sum 28124533
+[ 3422.391224] Result: 7032711
+[ 3422.532634] Should have at least 60ms
+[ 3422.536661] count: 4 sizeof: 4
+[ 3422.539760] The value is 484764503
+[ 3422.543312] Going to clean up the ring buff
+[ 3422.547539] Going to run the thread
+[ 3422.560849] count: 4 sizeof: 4
+[ 3422.564932] irq no is: 55
+[ 3422.567870] m 12, delta 2000
+[ 3422.577251] No result, going to request one
+[ 3424.580226] sampling 12
+[ 3426.590141] sampling 11
+[ 3428.600147] sampling 10
+[ 3430.610147] sampling 9
+[ 3432.620141] sampling 8
+[ 3434.630159] sampling 7
+[ 3436.640132] sampling 6
+[ 3438.650130] sampling 5
+[ 3440.660131] sampling 4
+[ 3442.670131] sampling 3
+[ 3444.680147] sampling 2
+[ 3446.690132] sampling 1
+[ 3446.692534] Total interrupts 24
+[ 3446.695705] diff 7076543
+[ 3446.698262] diff 7047871
+[ 3446.700936] diff 7028039
+[ 3446.703503] diff 7028301
+[ 3446.706059] diff 7019571
+[ 3446.708612] diff 7018775
+[ 3446.711254] diff 7037855
+[ 3446.713819] diff 7068295
+[ 3446.716375] diff 7027739
+[ 3446.718928] diff 7039191
+[ 3446.721567] diff 7028379
+[ 3446.724133] diff 7038731
+[ 3446.726694] large: 7076543 small: 7018775 sum 84459290
+[ 3446.731971] Result: 7036397
