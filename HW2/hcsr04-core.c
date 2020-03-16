@@ -64,11 +64,11 @@ struct hcsr_dev {
 static dev_t dev_num = 0;                       /**< Driver Major Number */
 static struct class *s_dev_class = NULL;        /**< Driver Class */
 static struct hcsr_dev *dev;                    /**< Per device objects */
-#endif
 
 /** Device parameter n */
 static int n = 1;
 module_param(n, int, S_IRUGO);
+#endif //NORMAL_MODULE
 
 /**
  * @brief: handling the echo pin interrupt.
@@ -972,14 +972,14 @@ static struct platform_driver hcsr_of_driver = {
         .remove         = hcsr_driver_remove,
         .id_table       = hcsr_id_table,
 };
-#endif
+#endif //NORMAL_MODULE
 
 #ifdef NORMAL_MODULE
 module_init(hcsr04_init);
 module_exit(hcsr04_exit);
 #else
 module_platform_driver(hcsr_of_driver);
-#endif
+#endif //NORMAL_MODULE
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Xiangyu Guo");
 MODULE_DESCRIPTION("Assignment 2");
