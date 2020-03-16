@@ -144,12 +144,20 @@ static multi_plexing_t shield_pins[] = {
 static unsigned int pin_usage = 0;
 
 /**< Flag to represent the pin support interrupt both */
-static unsigned int interrupt_both = 0b01 << 4  |
+static unsigned int interrupt_both = 0b01 << 2  |
+                                     0b01 << 3  |
+                                     0b01 << 4  |
                                      0b01 << 5  |
                                      0b01 << 6  |
                                      0b01 << 9  |
                                      0b01 << 11 |
-                                     0b01 << 13;
+                                     0b01 << 13 |
+                                     0b01 << 14 |
+                                     0b01 << 15 |
+                                     0b01 << 16 |
+                                     0b01 << 17 |
+                                     0b01 << 18 |
+                                     0b01 << 19;
 
 /**
  * @brief setting up the pwm pin value
