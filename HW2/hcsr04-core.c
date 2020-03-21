@@ -6,7 +6,8 @@
  */
 #include <linux/module.h>
 #include <linux/kernel.h>
-#include <linux/device.h>
+#include <linux/miscdevice.h>
+#include <linux/major.h>
 
 #include <linux/interrupt.h>
 #include <linux/gpio.h>
@@ -15,7 +16,6 @@
 
 #include <linux/slab.h>
 #include <linux/init.h>
-#include <linux/cdev.h>
 #include <linux/fs.h>
 
 #include <linux/uaccess.h>
@@ -45,7 +45,7 @@ typedef struct sample_data {
 
 /** per device structure */
 struct hcsr_dev {
-        struct cdev cdev;                       /**< The cdev structure */
+        struct miscdevice miscdev;              /**< The miscdevice structure */
         char name[BUFF_SIZE];                   /**< The name of the device */
         parameters_setting_t params;            /**< Device parameters */
         pins_setting_t pins;                    /**< Device pin settings */
@@ -61,8 +61,7 @@ struct hcsr_dev {
 };
 
 #ifdef NORMAL_MODULE
-static dev_t dev_num = 0;                       /**< Driver Major Number */
-static struct class *s_dev_class = NULL;        /**< Driver Class */
+static struct class_compat *s_dev_class = NULL; /**< Driver Compatible Class */
 static struct hcsr_dev *dev;                    /**< Per device objects */
 
 /** Device parameter n */
@@ -589,7 +588,7 @@ static int hcsr_isr_exit(hcsr_dev_t *devp) {
 static int hcsr_open(struct inode *i, struct file *filp) {
         struct hcsr_dev *devp;
 
-        devp = container_of(i->i_cdev, struct hcsr_dev, cdev);
+        devp = container_of(filp->private_data, struct hcsr_dev, miscdev);
 
         filp->private_data = devp;
         return 0;
@@ -746,15 +745,13 @@ static int hcsr04_init(void) {
                 return -EINVAL;
 
         // Allocate space for the structure
-        dev = kmalloc(sizeof(struct hcsr_dev) * n, GFP_KERNEL);
+        dev = kzalloc(sizeof(struct hcsr_dev) * n, GFP_KERNEL);
         if (dev == NULL) {
                 return -ENOMEM;
         }
 
-        // Get a device number for the driver
-        ret = alloc_chrdev_region(&dev_num, 0, n, DEVICE_NAME_PREFIX);
-
-        s_dev_class = class_create(THIS_MODULE, CLASS_NAME);
+        // Create a compatible class for device object
+        s_dev_class = class_compat_register(CLASS_NAME);
 
         for (i = 0; i < n; ++i) {
                 ret = snprintf(dev[i].name, BUFF_SIZE - 1, "%s%d", DEVICE_NAME_PREFIX, i);
@@ -797,20 +794,21 @@ static int hcsr04_init(void) {
                         return -ECHILD;
                 }
 
-                // Create cdev
-                cdev_init(&(dev[i].cdev), &fops);
-                dev[i].cdev.owner = THIS_MODULE;
-
-                // Add to cdev chain
-                ret = cdev_add(&dev[i].cdev, MKDEV(MAJOR(dev_num), i), 1);
+                // Create miscdev
+                dev[i].miscdev.minor = MISC_DYNAMIC_MINOR;
+                dev[i].miscdev.name = dev[i].name;
+                dev[i].miscdev.fops = &fops;
+                ret = misc_register(&dev[i].miscdev);
                 if (ret) {
-                        printk("Bad cdev\n");
+                        printk(KERN_ALERT "misc_register failed\n");
+                        // ToDo: clear up before return an error.
                         return ret;
                 }
 
-                // Register the device driver to the file system
-                dev[i].s_dev = device_create_with_groups(s_dev_class, NULL, MKDEV(MAJOR(dev_num), i),
-                                        &dev[i], hcsr_groups, dev[i].name);
+                printk(KERN_INFO "Adding %s\n", dev[i].name);
+                // Register the device driver to the file system.
+                class_compat_create_link(s_dev_class, dev[i].miscdev.this_device, NULL);
+                sysfs_create_groups(&(dev[i].miscdev.this_device->kobj), hcsr_groups);
         }
 
         return 0;
@@ -820,7 +818,10 @@ static void hcsr04_exit(void) {
         int i;
         printk(KERN_ALERT "Goodbye, world\n");
         for (i = 0; i < n; ++i) {
-                device_destroy(s_dev_class, MKDEV(MAJOR(dev_num), i));
+                // Unregister the device driver from the file system.
+                sysfs_remove_groups(&(dev[i].miscdev.this_device->kobj), hcsr_groups);
+
+                class_compat_remove_link(s_dev_class, dev[i].miscdev.this_device, NULL);
 
                 // Release the gpio setting.
                 hcsr04_config_fini(&dev[i].pins);
@@ -834,15 +835,12 @@ static void hcsr04_exit(void) {
                 // Release the result_queue buff.
                 ring_buff_fini(dev[i].result_queue);
 
-                // Remove from cdev chain
-                cdev_del(&(dev[i].cdev));
+                // Remove from miscdev chain
+                misc_deregister(&dev[i].miscdev);
         }
 
         // Destroy driver_class
-        class_destroy(s_dev_class);
-
-        // Release the major number
-        unregister_chrdev_region(dev_num, n);
+        class_compat_unregister(s_dev_class);
 
         kfree(dev);
 }
@@ -869,7 +867,7 @@ static int hcsr_driver_probe(struct platform_device *pdevp)
         int ret;
         
         hdevp = container_of(pdevp, hcsr_device_t, plf_dev);
-        hdevp->dev = kmalloc(sizeof(struct hcsr_dev), GFP_KERNEL);
+        hdevp->dev = kzalloc(sizeof(struct hcsr_dev), GFP_KERNEL);
         devp = hdevp->dev;
         
         printk(KERN_ALERT "Found the device -- %s  %d \n", hdevp->name, hdevp->dev_no);
@@ -913,20 +911,22 @@ static int hcsr_driver_probe(struct platform_device *pdevp)
                 return -ECHILD;
         }
 
-        // Create cdev
-        cdev_init(&(devp->cdev), &fops);
-        devp->cdev.owner = THIS_MODULE;
-
-        // Add to cdev chain
-        ret = cdev_add(&devp->cdev, hdevp->dev_no, 1);
+        // Create miscdev
+        devp->miscdev.minor = MISC_DYNAMIC_MINOR;
+        devp->miscdev.name = devp->name;
+        devp->miscdev.fops = &fops;
+        ret = misc_register(&devp->miscdev);
         if (ret) {
-                printk("Bad cdev\n");
+                printk(KERN_ALERT "misc_register failed\n");
+                // ToDo: clear up before return an error.
                 return ret;
         }
 
-        // Register the device driver to the file system
-        devp->s_dev = device_create_with_groups(hdevp->dev_class, NULL, hdevp->dev_no,
-                                devp, hcsr_groups, devp->name);
+        printk(KERN_INFO "Adding %s\n", devp->name);
+        // Register the device driver to the file system.
+        class_compat_create_link(hdevp->dev_class, devp->miscdev.this_device, NULL);
+        sysfs_create_groups(&(devp->miscdev.this_device->kobj), hcsr_groups);
+
         return 0;
 };
 
@@ -938,8 +938,11 @@ static int hcsr_driver_remove(struct platform_device *pdevp)
         hdevp = container_of(pdevp, hcsr_device_t, plf_dev);
         devp = hdevp->dev;
         
-        printk(KERN_ALERT "Removing the device -- %s %d \n", hdevp->name, hdevp->dev_no);
-        device_destroy(hdevp->dev_class, hdevp->dev_no);
+        printk(KERN_ALERT "Removing the device -- %s %d \n", devp->name, hdevp->dev_no);
+        // Unregister the device driver from the file system.
+        sysfs_remove_groups(&(devp->miscdev.this_device->kobj), hcsr_groups);
+
+        class_compat_remove_link(hdevp->dev_class, devp->miscdev.this_device, NULL);
 
         // Release the gpio setting.
         hcsr04_config_fini(&devp->pins);
@@ -955,8 +958,8 @@ static int hcsr_driver_remove(struct platform_device *pdevp)
         // Release the result_queue buff.
         ring_buff_fini(devp->result_queue);
 
-        // Remove from cdev chain
-        cdev_del(&(devp->cdev));
+        // Remove from miscdev chain
+        misc_deregister(&devp->miscdev);
 
         kfree(hdevp->dev);
 
