@@ -21,8 +21,7 @@
 
 static const char *platform_name = "HCSR04";    /**< Constant platform name */
 
-static dev_t dev_num = 0;                       /**< Driver Major Number */
-static struct class *s_dev_class = NULL;        /**< Driver Class */
+static struct class_compat *s_dev_class = NULL; /**< Driver Compatible Class */
 
 /**
  * @brief release device structure
@@ -47,21 +46,19 @@ module_param(n, int, S_IRUGO);
 static int hcsr_device_init(void)
 {
         int i;
-        int ret;
-        // Get a device number for the driver
-        ret = alloc_chrdev_region(&dev_num, 0, n, DEVICE_NAME);
 
         if (n > NUM_OF_DEVICES) {
                 printk(KERN_WARNING "Only supported %d devices.\n", NUM_OF_DEVICES);
                 n = NUM_OF_DEVICES;
         }
 
-        hcsr_devices = kmalloc(n * sizeof(hcsr_device_t), GFP_KERNEL);
+        hcsr_devices = kzalloc(n * sizeof(hcsr_device_t), GFP_KERNEL);
         if (hcsr_devices == NULL) {
                 return -ENOMEM;
         }
 
-        s_dev_class = class_create(THIS_MODULE, DEVICE_NAME);
+        // Create a compatible class for device object
+        s_dev_class = class_compat_register(DEVICE_NAME);
 
         // Register the device
         for (i = 0; i < n; i++) {
@@ -69,7 +66,7 @@ static int hcsr_device_init(void)
                 snprintf(dev_name, CHAR_BUF_LEN, "%s_%d", DEVICE_NAME, i);
                 hcsr_devices[i].name                  = dev_name;
                 hcsr_devices[i].dev_class             = s_dev_class;
-                hcsr_devices[i].dev_no                = MKDEV(MAJOR(dev_num), i);
+                hcsr_devices[i].dev_no                = i;
                 hcsr_devices[i].plf_dev.name          = platform_name;
                 hcsr_devices[i].plf_dev.id            = 0;
                 hcsr_devices[i].plf_dev.dev.release   = hcsr_device_release;
@@ -93,10 +90,7 @@ static void hcsr_device_exit(void)
         kfree(hcsr_devices);
 
         // Destroy driver_class
-        class_destroy(s_dev_class);
-
-        // Release the major number
-        unregister_chrdev_region(dev_num, n);
+        class_compat_unregister(s_dev_class);
 
         printk(KERN_ALERT "Goodbye, unregister the device\n");
 }
