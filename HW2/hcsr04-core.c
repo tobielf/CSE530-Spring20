@@ -734,146 +734,12 @@ failed:
         hcsr_unlock(devp);
         return -EFAULT;
 }
-#ifdef NORMAL_MODULE
-static int hcsr04_init(void) {
-        int i;
+
+static int hcsr_init_one(struct hcsr_dev *devp, unsigned int id) {
         int ret;
 
-        printk(KERN_INFO "Registering %d Devices\n", n);
-
-        // Check the param n, can't more than 10, since we only got 20 shield pins.
-        if (n > 10)
-                return -EINVAL;
-
-        // Allocate space for the structure
-        dev = kzalloc(sizeof(struct hcsr_dev) * n, GFP_KERNEL);
-        if (dev == NULL) {
-                return -ENOMEM;
-        }
-
-        // Create a compatible class for device object
-        s_dev_class = class_compat_register(CLASS_NAME);
-
-        for (i = 0; i < n; ++i) {
-                ret = snprintf(dev[i].name, BUFF_SIZE - 1, "%s%d", DEVICE_NAME_PREFIX, i);
-                dev[i].name[ret] = 0;
-                printk(KERN_INFO "Creating %s\n", dev[i].name);
-
-                // Initialized device lock.
-                atomic_set(&dev[i].available, 1);
-                atomic_set(&dev[i].most_recent, 0);
-
-                // Initialized default m and delta.
-                dev[i].params.m = 4;
-                dev[i].params.delta = 200;
-
-                // Initialized default pins.
-                dev[i].pins.trigger_pin = -1;
-                dev[i].pins.echo_pin = -1;
-
-                dev[i].irq_no = 0;
-                dev[i].job_done = 1;
-                dev[i].endless = 0;
-
-                // Initialized the result_queue buff.
-                dev[i].result_queue = ring_buff_init(HISTORY_SIZE, kfree); 
-                if (dev[i].result_queue == NULL)
-                        return -ENOMEM;
-
-                // Initialized the sample_result buff.
-                dev[i].sample_result.data = kmalloc(sizeof(unsigned long long) * 
-                                                dev[i].params.m * 2, GFP_KERNEL);
-                if (dev[i].sample_result.data == NULL)
-                        return -ENOMEM;
-
-                // Initialized the sampling thread
-                printk(KERN_INFO "Going to run the thread\n");
-                dev[i].tsk = kthread_run(hcsr_sampling_thread, &dev[i], "sampling thread");
-                if (IS_ERR(dev[i].tsk)) {
-                        printk(KERN_INFO "kthread failed\n");
-                        // Create a child process failed.
-                        return -ECHILD;
-                }
-
-                // Create miscdev
-                dev[i].miscdev.minor = MISC_DYNAMIC_MINOR;
-                dev[i].miscdev.name = dev[i].name;
-                dev[i].miscdev.fops = &fops;
-                ret = misc_register(&dev[i].miscdev);
-                if (ret) {
-                        printk(KERN_ALERT "misc_register failed\n");
-                        // ToDo: clear up before return an error.
-                        return ret;
-                }
-
-                printk(KERN_INFO "Adding %s\n", dev[i].name);
-                // Register the device driver to the file system.
-                class_compat_create_link(s_dev_class, dev[i].miscdev.this_device, NULL);
-                sysfs_create_groups(&(dev[i].miscdev.this_device->kobj), hcsr_groups);
-        }
-
-        return 0;
-}
-
-static void hcsr04_exit(void) {
-        int i;
-        printk(KERN_ALERT "Goodbye, world\n");
-        for (i = 0; i < n; ++i) {
-                // Unregister the device driver from the file system.
-                sysfs_remove_groups(&(dev[i].miscdev.this_device->kobj), hcsr_groups);
-
-                class_compat_remove_link(s_dev_class, dev[i].miscdev.this_device, NULL);
-
-                // Release the gpio setting.
-                hcsr04_config_fini(&dev[i].pins);
-
-                // Exit the thread.
-                kthread_stop(dev[i].tsk);
-
-                // Release the sample_result buff.
-                kfree(dev[i].sample_result.data);
-
-                // Release the result_queue buff.
-                ring_buff_fini(dev[i].result_queue);
-
-                // Remove from miscdev chain
-                misc_deregister(&dev[i].miscdev);
-        }
-
-        // Destroy driver_class
-        class_compat_unregister(s_dev_class);
-
-        kfree(dev);
-}
-#else
-#define DRIVER_NAME     "HCSR_of_driver"
-
-static const struct platform_device_id hcsr_id_table[] = {
-        { "HCSR04", 0 },
-        { "HCSR04", 1 },
-        { "HCSR04", 2 },
-        { "HCSR04", 3 },
-        { "HCSR04", 4 },
-        { "HCSR04", 5 },
-        { "HCSR04", 6 },
-        { "HCSR04", 7 },
-        { "HCSR04", 8 },
-        { "HCSR04", 9 },
-};
-
-static int hcsr_driver_probe(struct platform_device *pdevp)
-{
-        hcsr_device_t *hdevp;
-        hcsr_dev_t *devp;
-        int ret;
-        
-        hdevp = container_of(pdevp, hcsr_device_t, plf_dev);
-        hdevp->dev = kzalloc(sizeof(struct hcsr_dev), GFP_KERNEL);
-        devp = hdevp->dev;
-        
-        ret = snprintf(devp->name, BUFF_SIZE - 1, "%s%d", DEVICE_NAME_PREFIX, pdevp->id);
-        devp->name[ret] = 0;
-        printk(KERN_ALERT "Found the device -- %s  %d \n", devp->name, pdevp->id);
+        snprintf(devp->name, BUFF_SIZE, "%s%d", DEVICE_NAME_PREFIX, id);
+        printk(KERN_ALERT "Found the device -- %s  %d \n", devp->name, id);
         printk(KERN_INFO "Creating %s\n", devp->name);
 
         // Initialized device lock.
@@ -929,17 +795,9 @@ static int hcsr_driver_probe(struct platform_device *pdevp)
         sysfs_create_groups(&(devp->miscdev.this_device->kobj), hcsr_groups);
 
         return 0;
-};
+}
 
-static int hcsr_driver_remove(struct platform_device *pdevp)
-{
-        hcsr_device_t *hdevp;
-        hcsr_dev_t *devp;
-        
-        hdevp = container_of(pdevp, hcsr_device_t, plf_dev);
-        devp = hdevp->dev;
-        
-        printk(KERN_ALERT "Removing the device -- %s %d \n", devp->name, pdevp->id);
+static void hcsr_fini_one(struct hcsr_dev *devp) {
         // Unregister the device driver from the file system.
         sysfs_remove_groups(&(devp->miscdev.this_device->kobj), hcsr_groups);
 
@@ -961,6 +819,92 @@ static int hcsr_driver_remove(struct platform_device *pdevp)
 
         // Remove from miscdev chain
         misc_deregister(&devp->miscdev);
+}
+
+#ifdef NORMAL_MODULE
+static int hcsr04_init(void) {
+        int i;
+        int ret;
+
+        printk(KERN_INFO "Registering %d Devices\n", n);
+
+        // Check the param n, can't more than 10, since we only got 20 shield pins.
+        if (n > 10)
+                return -EINVAL;
+
+        // Allocate space for the structure
+        dev = kzalloc(sizeof(struct hcsr_dev) * n, GFP_KERNEL);
+        if (dev == NULL) {
+                return -ENOMEM;
+        }
+
+        // Create a compatible class for device object
+        s_dev_class = class_compat_register(CLASS_NAME);
+
+        for (i = 0; i < n; ++i) {
+                ret = hcsr_init_one(&dev[i], i);
+                if (ret) {
+                        return ret;
+                }
+        }
+
+        return 0;
+}
+
+static void hcsr04_exit(void) {
+        int i;
+        printk(KERN_ALERT "Goodbye, world\n");
+        for (i = 0; i < n; ++i) {
+                hcsr_fini_one(&dev[i]);
+        }
+
+        // Destroy driver_class
+        class_compat_unregister(s_dev_class);
+
+        kfree(dev);
+}
+#else
+#define DRIVER_NAME     "HCSR_of_driver"
+
+static const struct platform_device_id hcsr_id_table[] = {
+        { "HCSR04", 0 },
+        { "HCSR04", 1 },
+        { "HCSR04", 2 },
+        { "HCSR04", 3 },
+        { "HCSR04", 4 },
+        { "HCSR04", 5 },
+        { "HCSR04", 6 },
+        { "HCSR04", 7 },
+        { "HCSR04", 8 },
+        { "HCSR04", 9 },
+};
+
+static int hcsr_driver_probe(struct platform_device *pdevp)
+{
+        hcsr_device_t *hdevp;
+        hcsr_dev_t *devp;
+        int ret;
+        
+        hdevp = container_of(pdevp, hcsr_device_t, plf_dev);
+        hdevp->dev = kzalloc(sizeof(struct hcsr_dev), GFP_KERNEL);
+        devp = hdevp->dev;
+        
+        ret = hcsr_init_one(devp, pdevp->id);
+
+        return ret;
+};
+
+static int hcsr_driver_remove(struct platform_device *pdevp)
+{
+        hcsr_device_t *hdevp;
+        hcsr_dev_t *devp;
+        
+        hdevp = container_of(pdevp, hcsr_device_t, plf_dev);
+        devp = hdevp->dev;
+        
+        printk(KERN_ALERT "Removing the device -- %s %d \n", devp->name, pdevp->id);
+
+        hcsr_fini_one(devp);
 
         kfree(hdevp->dev);
 
