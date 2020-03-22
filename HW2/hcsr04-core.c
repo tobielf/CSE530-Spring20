@@ -870,9 +870,9 @@ static int hcsr_driver_probe(struct platform_device *pdevp)
         hdevp->dev = kzalloc(sizeof(struct hcsr_dev), GFP_KERNEL);
         devp = hdevp->dev;
         
-        printk(KERN_ALERT "Found the device -- %s  %d \n", hdevp->name, hdevp->dev_no);
-        ret = snprintf(devp->name, BUFF_SIZE - 1, "%s", hdevp->name);
+        ret = snprintf(devp->name, BUFF_SIZE - 1, "%s%d", DEVICE_NAME_PREFIX, pdevp->id);
         devp->name[ret] = 0;
+        printk(KERN_ALERT "Found the device -- %s  %d \n", devp->name, pdevp->id);
         printk(KERN_INFO "Creating %s\n", devp->name);
 
         // Initialized device lock.
@@ -938,7 +938,7 @@ static int hcsr_driver_remove(struct platform_device *pdevp)
         hdevp = container_of(pdevp, hcsr_device_t, plf_dev);
         devp = hdevp->dev;
         
-        printk(KERN_ALERT "Removing the device -- %s %d \n", devp->name, hdevp->dev_no);
+        printk(KERN_ALERT "Removing the device -- %s %d \n", devp->name, pdevp->id);
         // Unregister the device driver from the file system.
         sysfs_remove_groups(&(devp->miscdev.this_device->kobj), hcsr_groups);
 

@@ -11,8 +11,6 @@
 #define __HCSR04_DEVICE_H__
 
 typedef struct hcsr_device {
-        char *name;                         /**< Device name */
-        dev_t  dev_no;                      /**< Device number */
         hcsr_dev_t *dev;                    /**< Device structure */
         struct class_compat *dev_class;     /**< Sysfs class */
         struct platform_device plf_dev;     /**< Platform device */
