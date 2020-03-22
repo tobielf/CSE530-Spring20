@@ -15,9 +15,7 @@
 
 #include "hcsr_device.h"
 
-#define CHAR_BUF_LEN (8)                        /**< Length of name buffer */
 #define NUM_OF_DEVICES (10)                     /**< Number of devices supported by this driver*/
-#define CLASS_NAME "HCSR"                       /**< Sysfs class name */
 
 static const char *platform_name = "HCSR04";    /**< Constant platform name */
 
@@ -57,12 +55,8 @@ static int hcsr_device_init(void)
                 return -ENOMEM;
         }
 
-        // Create a compatible class for device object
-        s_dev_class = class_compat_register(CLASS_NAME);
-
         // Register the device
         for (i = 0; i < n; i++) {
-                hcsr_devices[i].dev_class             = s_dev_class;
                 hcsr_devices[i].plf_dev.name          = platform_name;
                 hcsr_devices[i].plf_dev.id            = i;
                 hcsr_devices[i].plf_dev.dev.release   = hcsr_device_release;
@@ -84,10 +78,7 @@ static void hcsr_device_exit(void)
         }
         kfree(hcsr_devices);
 
-        // Destroy driver_class
-        class_compat_unregister(s_dev_class);
-
-        printk(KERN_ALERT "Goodbye, unregister the device\n");
+        printk(KERN_ALERT "Goodbye, unregister the devices.\n");
 }
 
 module_init(hcsr_device_init);

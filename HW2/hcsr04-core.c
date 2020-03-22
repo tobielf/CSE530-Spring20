@@ -60,8 +60,9 @@ struct hcsr_dev {
         atomic_t most_recent;                   /**< Latest measurement */
 };
 
-#ifdef NORMAL_MODULE
 static struct class_compat *s_dev_class = NULL; /**< Driver Compatible Class */
+
+#ifdef NORMAL_MODULE
 static struct hcsr_dev *dev;                    /**< Per device objects */
 
 /** Device parameter n */
@@ -924,7 +925,7 @@ static int hcsr_driver_probe(struct platform_device *pdevp)
 
         printk(KERN_INFO "Adding %s\n", devp->name);
         // Register the device driver to the file system.
-        class_compat_create_link(hdevp->dev_class, devp->miscdev.this_device, NULL);
+        class_compat_create_link(s_dev_class, devp->miscdev.this_device, NULL);
         sysfs_create_groups(&(devp->miscdev.this_device->kobj), hcsr_groups);
 
         return 0;
@@ -942,7 +943,7 @@ static int hcsr_driver_remove(struct platform_device *pdevp)
         // Unregister the device driver from the file system.
         sysfs_remove_groups(&(devp->miscdev.this_device->kobj), hcsr_groups);
 
-        class_compat_remove_link(hdevp->dev_class, devp->miscdev.this_device, NULL);
+        class_compat_remove_link(s_dev_class, devp->miscdev.this_device, NULL);
 
         // Release the gpio setting.
         hcsr04_config_fini(&devp->pins);
@@ -975,14 +976,25 @@ static struct platform_driver hcsr_of_driver = {
         .remove         = hcsr_driver_remove,
         .id_table       = hcsr_id_table,
 };
+
+static int hcsr04_init(void) {
+        // Create a compatible class for device object
+        s_dev_class = class_compat_register(CLASS_NAME);
+
+        platform_driver_register(&hcsr_of_driver);
+
+        return 0;
+}
+static void hcsr04_exit(void) {
+        platform_driver_unregister(&hcsr_of_driver);
+
+        // Destroy driver_class
+        class_compat_unregister(s_dev_class);
+}
 #endif //NORMAL_MODULE
 
-#ifdef NORMAL_MODULE
 module_init(hcsr04_init);
 module_exit(hcsr04_exit);
-#else
-module_platform_driver(hcsr_of_driver);
-#endif //NORMAL_MODULE
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Xiangyu Guo");
 MODULE_DESCRIPTION("Assignment 2");
