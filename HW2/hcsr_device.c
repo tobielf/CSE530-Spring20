@@ -19,8 +19,6 @@
 
 static const char *platform_name = "HCSR04";    /**< Constant platform name */
 
-static struct class_compat *s_dev_class = NULL; /**< Driver Compatible Class */
-
 /**
  * @brief release device structure
  * @note dummy implementation
