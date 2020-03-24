@@ -290,6 +290,9 @@ static ssize_t hcsr_echo_store(struct device *dev,
         if (devp->pins.echo_pin != -1)
                 hcsr04_fini_pins(devp->pins.echo_pin);
 
+        // Remove isr and irq_no
+        hcsr_isr_exit(devp);
+
         devp->pins.echo_pin = -1;
 
         if (hcsr04_init_echo(pin)) {
@@ -298,6 +301,18 @@ static ssize_t hcsr_echo_store(struct device *dev,
         }
 
         devp->pins.echo_pin = pin;
+
+        // Setup isr and irq_no
+        status = hcsr_isr_init(devp);
+        if (status < 0) {
+                devp->irq_no = 0;
+                hcsr04_fini_pins(devp->pins.echo_pin);
+                devp->pins.echo_pin = -1;
+                printk(KERN_ALERT "irq failed %d\n", status);
+                hcsr_unlock(devp);
+                return status;
+        }
+
         // unlock the device, finish pin setting.
         hcsr_unlock(devp);
         return count;
@@ -434,7 +449,6 @@ static int hcsr_sampling_thread(void *data) {
         int m;
         int delta;
         int trigger_pin;
-        int ret;
         hcsr_dev_t *devp = (hcsr_dev_t *)data;
         result_info_t *res = NULL;
 
@@ -446,15 +460,6 @@ static int hcsr_sampling_thread(void *data) {
                 // save parameters.
                 delta = devp->params.delta;
                 trigger_pin = hcsr04_shield_to_gpio(devp->pins.trigger_pin);
-
-                // Setup isr and irq_no
-                ret = hcsr_isr_init(devp);
-                if (ret) {
-                        printk(KERN_ALERT "irq failed %d\n", ret);
-                        // unlock
-                        hcsr_unlock(devp);
-                        return ret;
-                }
 
                 do {
                         m = devp->params.m;
@@ -481,9 +486,7 @@ static int hcsr_sampling_thread(void *data) {
                         // Collect the tsc in ISR and compute here.
                         res = kmalloc(sizeof(result_info_t), GFP_KERNEL);
                         if (res == NULL) {
-                                // unlock
-                                hcsr_unlock(devp);
-                                return -ENOMEM;
+                                break;
                         }
 
                         res->measurement = hcsr_get_pulse_width(devp);
@@ -495,9 +498,6 @@ static int hcsr_sampling_thread(void *data) {
                         ring_buff_put(devp->result_queue, res);
                         atomic_set(&devp->most_recent, res->measurement);
                 } while (devp->endless);
-
-                // Remove isr and irq_no
-                hcsr_isr_exit(devp);
 
                 devp->job_done = 1;
 
@@ -575,7 +575,7 @@ static int hcsr_isr_init(hcsr_dev_t *devp) {
         printk(KERN_INFO "irq no is: %d\n", devp->irq_no);
 
         // Check return value.
-        return request_irq(devp->irq_no, isr_handler, 
+        return request_any_context_irq(devp->irq_no, isr_handler, 
                                 IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING,
                                 "hcsr04", (void *)&devp->sample_result);
 }
@@ -674,6 +674,7 @@ static long hcsr_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
         hcsr_dev_t *devp = filp->private_data;
         pins_setting_t pins;
         parameters_setting_t params;
+        int ret;
 
         // Not allow ioctl configuration during the sampling job.
         if (hcsr_lock(devp))
@@ -684,6 +685,13 @@ static long hcsr_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
                         if (copy_from_user(&pins, (pins_setting_t *)arg, 
                                            sizeof(pins_setting_t)))
                                 goto failed;
+                        // Validate the pins.
+                        if (hcsr04_config_validate(&pins))
+                                goto failed;
+
+                        // Remove isr and irq_no
+                        hcsr_isr_exit(devp);
+                        
                         // Remove previous GPIO setup
                         if (hcsr04_config_fini(&devp->pins))
                                 goto failed;
@@ -691,10 +699,6 @@ static long hcsr_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
                         // Assign to the device.
                         devp->pins.trigger_pin = -1;
                         devp->pins.echo_pin = -1;
-
-                        // Validate the pins.
-                        if (hcsr04_config_validate(&pins))
-                                goto failed;
                         
                         // Configure pins.
                         if (hcsr04_config_init(&pins))
@@ -703,6 +707,17 @@ static long hcsr_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
                         // Assign to the device.
                         devp->pins.trigger_pin = pins.trigger_pin;
                         devp->pins.echo_pin = pins.echo_pin;
+
+                        // Setup isr and irq_no
+                        ret = hcsr_isr_init(devp);
+                        if (ret < 0) {
+                                devp->irq_no = 0;
+                                hcsr04_config_fini(&devp->pins);
+                                devp->pins.trigger_pin = -1;
+                                devp->pins.echo_pin = -1;
+                                printk(KERN_ALERT "irq failed. %d\n", ret);
+                                goto failed;
+                        }
 
                         break;
                 case SET_PARAMETERS:
