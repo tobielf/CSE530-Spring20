@@ -750,11 +750,10 @@ failed:
         return -EFAULT;
 }
 
-static int hcsr_init_one(struct hcsr_dev *devp, unsigned int id) {
+static int hcsr_init_one(struct hcsr_dev *devp) {
         int ret;
 
-        snprintf(devp->name, BUFF_SIZE, "%s%d", DEVICE_NAME_PREFIX, id);
-        printk(KERN_ALERT "Found the device -- %s  %d \n", devp->name, id);
+        printk(KERN_ALERT "Found the device -- %s\n", devp->name);
         printk(KERN_INFO "Creating %s\n", devp->name);
 
         // Initialized device lock.
@@ -806,7 +805,9 @@ static int hcsr_init_one(struct hcsr_dev *devp, unsigned int id) {
 
         printk(KERN_INFO "Adding %s\n", devp->name);
         // Register the device driver to the file system.
+#ifdef NORMAL_MODULE
         class_compat_create_link(s_dev_class, devp->miscdev.this_device, NULL);
+#endif
         sysfs_create_groups(&(devp->miscdev.this_device->kobj), hcsr_groups);
 
         return 0;
@@ -816,7 +817,9 @@ static void hcsr_fini_one(struct hcsr_dev *devp) {
         // Unregister the device driver from the file system.
         sysfs_remove_groups(&(devp->miscdev.this_device->kobj), hcsr_groups);
 
+#ifdef NORMAL_MODULE
         class_compat_remove_link(s_dev_class, devp->miscdev.this_device, NULL);
+#endif
 
         // Release the gpio setting.
         hcsr04_config_fini(&devp->pins);
@@ -857,7 +860,8 @@ static int hcsr04_init(void) {
         s_dev_class = class_compat_register(CLASS_NAME);
 
         for (i = 0; i < n; ++i) {
-                ret = hcsr_init_one(&dev[i], i);
+                snprintf(dev[i].name, BUFF_SIZE, "%s%d", DEVICE_NAME_PREFIX, i);
+                ret = hcsr_init_one(&dev[i]);
                 if (ret) {
                         return ret;
                 }
@@ -879,19 +883,8 @@ static void hcsr04_exit(void) {
         kfree(dev);
 }
 #else
-#define DRIVER_NAME     "HCSR_of_driver"
-
 static const struct platform_device_id hcsr_id_table[] = {
         { "HCSR04", 0 },
-        { "HCSR04", 1 },
-        { "HCSR04", 2 },
-        { "HCSR04", 3 },
-        { "HCSR04", 4 },
-        { "HCSR04", 5 },
-        { "HCSR04", 6 },
-        { "HCSR04", 7 },
-        { "HCSR04", 8 },
-        { "HCSR04", 9 },
 };
 
 static int hcsr_driver_probe(struct platform_device *pdevp)
@@ -904,7 +897,12 @@ static int hcsr_driver_probe(struct platform_device *pdevp)
         hdevp->dev = kzalloc(sizeof(struct hcsr_dev), GFP_KERNEL);
         devp = hdevp->dev;
         
-        ret = hcsr_init_one(devp, pdevp->id);
+        snprintf(devp->name, BUFF_SIZE, "%s", pdevp->name);
+        ret = hcsr_init_one(devp);
+
+        class_compat_create_link(s_dev_class, &pdevp->dev, NULL);
+
+        sysfs_create_files(&(pdevp->dev.kobj), (const struct attribute **)hcsr_attrs);
 
         return ret;
 };
@@ -917,7 +915,11 @@ static int hcsr_driver_remove(struct platform_device *pdevp)
         hdevp = container_of(pdevp, hcsr_device_t, plf_dev);
         devp = hdevp->dev;
         
-        printk(KERN_ALERT "Removing the device -- %s %d \n", devp->name, pdevp->id);
+        printk(KERN_ALERT "Removing the device -- %s\n", devp->name);
+
+        sysfs_remove_files(&(pdevp->dev.kobj), (const struct attribute **)hcsr_attrs);
+
+        class_compat_remove_link(s_dev_class, &pdevp->dev, NULL);
 
         hcsr_fini_one(devp);
 

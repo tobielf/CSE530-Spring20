@@ -15,9 +15,10 @@
 
 #include "hcsr_device.h"
 
+#define NAME_LEN (8)                            /**< The length of device name */
 #define NUM_OF_DEVICES (10)                     /**< Number of devices supported by this driver*/
 
-static const char *platform_name = "HCSR04";    /**< Constant platform name */
+static const char *platform_name = "HCSR";      /**< Constant platform name */
 
 /**
  * @brief release device structure
@@ -55,8 +56,11 @@ static int hcsr_device_init(void)
 
         // Register the device
         for (i = 0; i < n; i++) {
-                hcsr_devices[i].plf_dev.name          = platform_name;
-                hcsr_devices[i].plf_dev.id            = i;
+                char *dev_name = kmalloc(NAME_LEN, GFP_KERNEL);
+                snprintf(dev_name, NAME_LEN, "%s_%d", platform_name, i);
+                hcsr_devices[i].plf_dev.driver_override = DRIVER_NAME;
+                hcsr_devices[i].plf_dev.name          = dev_name;
+                hcsr_devices[i].plf_dev.id            = PLATFORM_DEVID_NONE;
                 hcsr_devices[i].plf_dev.dev.release   = hcsr_device_release;
                 platform_device_register(&hcsr_devices[i].plf_dev);
         }
@@ -73,6 +77,7 @@ static void hcsr_device_exit(void)
 
         for (i = 0; i < n; i++) {
                 platform_device_unregister(&hcsr_devices[i].plf_dev);
+                kfree(hcsr_devices[i].plf_dev.name);
         }
         kfree(hcsr_devices);
 
