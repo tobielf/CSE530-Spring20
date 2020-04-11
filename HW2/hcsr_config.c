@@ -172,21 +172,29 @@ static void hcsr04_set_pwm_value(int flag, int pin) {
         }
 }
 
-int hcsr04_init_echo(int pin) {
+int hcsr04_init_pins(int pin, int dir) {
         int ret;
+        int flag = GPIOF_OUT_INIT_LOW;
         multi_plexing_t *mp = &shield_pins[pin];
         printk(KERN_INFO "shield: %d, logic: %d, dir: %d, mux1: %d, mux2: %d, mux: %d\n",
                 pin, mp->logic, mp->dir, mp->mux1, mp->mux2, mp->mux);
 
+        if (dir == INPUT) {
+            flag = GPIOF_IN;
+        }
         // logic
-        ret = gpio_request_one(mp->logic, GPIOF_IN, NULL);
+        ret = gpio_request_one(mp->logic, flag, NULL);
         if (ret) {
                 printk(KERN_ALERT "Config GPIO %d failed!\n", mp->logic);
                 return -EBUSY;
         }
+
+        if (dir == INPUT) {
+            flag = GPIOF_OUT_INIT_HIGH;
+        }
         // dir
         if (mp->dir != -1) {
-                ret = gpio_request_one(mp->dir, GPIOF_OUT_INIT_HIGH, NULL);
+                ret = gpio_request_one(mp->dir, flag, NULL);
         }
         // mux1
         if (mp->mux1 != -1 && mp->mux1 < 64) {
@@ -289,8 +297,8 @@ int hcsr04_config_init(pins_setting_t *pins) {
         if (hcsr04_config_validate(pins))
                 return -EINVAL;
 
-        if (hcsr04_init_trigger(pins->trigger_pin) || 
-                hcsr04_init_echo(pins->echo_pin))
+        if (hcsr04_init_pins(pins->trigger_pin, OUTPUT) || 
+                hcsr04_init_pins(pins->echo_pin, INPUT))
                 return -EBUSY;
 
         pin_usage |= (1 << pins->trigger_pin) | (1 << pins->echo_pin);

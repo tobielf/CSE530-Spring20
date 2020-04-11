@@ -7,6 +7,12 @@
 #define __HCSR_CONFIG_H__
 
 #include "common.h"
+
+enum direction {
+    INPUT,
+    OUTPUT,
+};
+
 /** 
  * @brief validate the pin.
  * @param pin, a valid pin.
@@ -43,20 +49,12 @@ int hcsr04_config_init(pins_setting_t *);
 int hcsr04_config_fini(pins_setting_t *);
 
 /** 
- * @brief setting up echo pin.
+ * @brief setting up pin.
  * @param pin, shield pin number.
- * @note This piece of code is not good, refactor it once I got time.
+ * @param dir, direction of the shield pin.
  * @return 0 on success, otherwise errno.
  */
-int hcsr04_init_echo(int);
-
-/** 
- * @brief setting up trigger pin.
- * @param pin, shield pin number.
- * @note This piece of code is not good, refactor it once I got time.
- * @return 0 on success, otherwise errno.
- */
-int hcsr04_init_trigger(int);
+int hcsr04_init_pins(int, int);
 
 /** 
  * @brief free up all pins.

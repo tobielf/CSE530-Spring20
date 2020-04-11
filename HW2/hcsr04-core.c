@@ -247,7 +247,7 @@ static ssize_t hcsr_trigger_store(struct device *dev,
 
         devp->pins.trigger_pin = -1;
 
-        if (hcsr04_init_trigger(pin)) {
+        if (hcsr04_init_pins(pin, OUTPUT)) {
                 hcsr_unlock(devp);
                 return -EBUSY;
         }
@@ -295,7 +295,7 @@ static ssize_t hcsr_echo_store(struct device *dev,
 
         devp->pins.echo_pin = -1;
 
-        if (hcsr04_init_echo(pin)) {
+        if (hcsr04_init_pins(pin, INPUT)) {
                 hcsr_unlock(devp);
                 return -EBUSY;
         }
@@ -820,6 +820,8 @@ static void hcsr_fini_one(struct hcsr_dev *devp) {
 #ifdef NORMAL_MODULE
         class_compat_remove_link(s_dev_class, devp->miscdev.this_device, NULL);
 #endif
+        // Remove isr and irq_no
+        hcsr_isr_exit(devp);
 
         // Release the gpio setting.
         hcsr04_config_fini(&devp->pins);
