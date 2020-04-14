@@ -113,15 +113,16 @@ int main(int argc, char *argv[]) {
     genl_hb_pins_t ps;
     genl_hb_pins_t *check;
 
-    if (argc < 3) {
-        printf("Usage: ./heart trigger echo\n");
+    if (argc < 4) {
+        printf("Usage: ./heart chip_select trigger echo\n");
         return -EINVAL;
     }
 
     prep_nl_sock(&nlsock);
 
-    ps.trigger = atoi(argv[1]);
-    ps.echo = atoi(argv[2]);
+    ps.chip_select = atoi(argv[1]);
+    ps.trigger = atoi(argv[2]);
+    ps.echo = atoi(argv[3]);
 
     memcpy(message, &ps, sizeof(genl_hb_pins_t));
     message[sizeof(genl_hb_pins_t)] = '\0';

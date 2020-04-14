@@ -184,7 +184,7 @@ int quark_gpio_init_pin(int pin, int dir) {
             flag = GPIOF_IN;
         }
         // logic
-        ret = gpio_request_one(mp->logic, flag, NULL);
+        ret = gpio_request_one(mp->logic, flag, "HeartBeat");
         if (ret) {
                 printk(KERN_ALERT "Config GPIO %d failed!\n", mp->logic);
                 return -EBUSY;
@@ -195,20 +195,20 @@ int quark_gpio_init_pin(int pin, int dir) {
         }
         // dir
         if (mp->dir != -1) {
-                ret = gpio_request_one(mp->dir, flag, NULL);
+                ret = gpio_request_one(mp->dir, flag, "HeartBeat");
         }
         // mux1
         if (mp->mux1 != -1 && mp->mux1 < 64) {
-                ret = gpio_request_one(mp->mux1, mp->mux, NULL);
+                ret = gpio_request_one(mp->mux1, mp->mux, "HeartBeat");
         } else if (mp->mux1 != -1) {
-                ret = gpio_request(mp->mux1, NULL);
+                ret = gpio_request(mp->mux1, "HeartBeat");
                 quark_gpio_set_pwm_value(mp->mux, mp->mux1);
         }
         // mux2
         if (mp->mux2 != -1 && mp->mux2 < 64) {
-                ret = gpio_request_one(mp->mux2, mp->mux, NULL);
+                ret = gpio_request_one(mp->mux2, mp->mux, "HeartBeat");
         } else if (mp->mux2 != -1) {
-                ret = gpio_request(mp->mux2, NULL);
+                ret = gpio_request(mp->mux2, "HeartBeat");
                 quark_gpio_set_pwm_value(mp->mux, mp->mux2);
         }
         pin_usage |= (1 << pin);
