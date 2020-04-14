@@ -12,6 +12,7 @@
 #include <netlink/genl/genl.h>
 #include <netlink/genl/family.h>
 #include <netlink/genl/ctrl.h>
+#include <stdint.h>
 #endif
 
 #define GENL_HB_FAMILY_NAME       "genl_hb"
@@ -22,7 +23,8 @@
 enum {
     GENL_HB_C_UNSPEC,           /**< Must NOT use element 0 */
     GENL_HB_CONFIG_MSG,         /**< Pin configuration message */
-    GENL_HB_MEASURE_MSG,        /**< Measurement message */
+    GENL_HB_MEASURE_MSG,        /**< Distance measurement message */
+    GENL_HB_DISPLAY_MSG,        /**< Pattern display message */
 };
 
 /** Generic netlink attributes */
@@ -34,9 +36,14 @@ enum genl_hb_attrs {
 #define GENL_HB_ATTR_MAX (__GENL_HB_ATTR__MAX - 1)
 
 typedef struct genl_hb_pins {
+    int chip_select;
     int trigger;
     int echo;
 } genl_hb_pins_t;
+
+typedef struct genl_hb_pattern {
+    uint8_t led[8];
+} genl_hb_pattern_t;
 
 static struct nla_policy genl_hb_policy[GENL_HB_ATTR_MAX+1] = {
         [GENL_HB_ATTR_MSG] = {

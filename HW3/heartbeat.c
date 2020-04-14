@@ -4,6 +4,8 @@
  */
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
+
 #include <errno.h>
 
 #include <netlink/msg.h>
@@ -110,6 +112,8 @@ int main(int argc, char *argv[]) {
     struct nl_sock* nlsock = NULL;
     struct nl_cb *cb = NULL;
     int ret;
+    uint8_t big_heart[8] = {0x1c, 0x22, 0x41, 0x82, 0x82, 0x41, 0x22, 0x1c};
+    uint8_t small_heart[8] = {0x00, 0x1c, 0x22, 0x44, 0x44, 0x22, 0x1c, 0x00};
     genl_hb_pins_t ps;
     genl_hb_pins_t *check;
 
@@ -132,6 +136,14 @@ int main(int argc, char *argv[]) {
 
     send_msg_to_kernel(nlsock, GENL_HB_CONFIG_MSG, sizeof(genl_hb_pins_t));
     send_msg_to_kernel(nlsock, GENL_HB_MEASURE_MSG, sizeof(genl_hb_pins_t));
+
+    memcpy(message, big_heart, 8 * sizeof(uint8_t));
+    send_msg_to_kernel(nlsock, GENL_HB_DISPLAY_MSG, sizeof(genl_hb_pattern_t));
+
+    usleep(100);
+
+    memcpy(message, small_heart, 8 * sizeof(uint8_t));
+    send_msg_to_kernel(nlsock, GENL_HB_DISPLAY_MSG, sizeof(genl_hb_pattern_t));
 
     /* preparing for the respond callback */
     cb = nl_cb_alloc(NL_CB_DEFAULT);

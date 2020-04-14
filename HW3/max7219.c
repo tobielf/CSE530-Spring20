@@ -224,6 +224,7 @@ int max7219_device_init(void) {
                 return -ENODEV;
 
         max7219_device = spi_new_device(master, &max7219_info);
+        put_device(&master->dev);
         if (!max7219_device)
                 return -ENODEV;
 
