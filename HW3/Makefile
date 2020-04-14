@@ -18,7 +18,7 @@ SPI = spi_tester
 APP = heart
 
 obj-m = heartbeat.o
-heartbeat-objs := heartbeat-core.o gpio_config.o
+heartbeat-objs := heartbeat-core.o gpio_config.o max7219.o
 
 all:
 	make ARCH=x86 CROSS_COMPILE=$(CROSS_COMPILE) -C $(KDIR) M=$(PWD) modules
