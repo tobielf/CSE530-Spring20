@@ -9,14 +9,8 @@
 #include <linux/device.h>
 
 #include "defs.h"
+#include "hcsr_drv.h"
 #include "hcsr_config.h"
-
-extern int hcsr_lock(hcsr_dev_t *);
-extern void hcsr_unlock(hcsr_dev_t *);
-extern int hcsr_isr_init(hcsr_dev_t *);
-extern int hcsr_isr_exit(hcsr_dev_t *);
-extern int hcsr_reallocate(hcsr_dev_t *, int);
-extern int hcsr_new_task(hcsr_dev_t *);
 
 /** ==========================================================================
  *                      Distance sysfs attribute

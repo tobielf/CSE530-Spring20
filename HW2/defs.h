@@ -7,6 +7,8 @@
 #ifndef __HCSR_H__
 #define __HCSR_H__
 
+#include <linux/miscdevice.h>
+
 #include "hcsr04.h"
 #include "ring_buff.h"
 

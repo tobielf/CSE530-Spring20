@@ -76,6 +76,7 @@ static struct attribute *hcsr_attrs[] = {
         NULL,
 };
 
+#ifdef NORMAL_MODULE
 static const struct attribute_group hcsr_group = {
         .attrs = hcsr_attrs,
 };
@@ -84,5 +85,6 @@ static const struct attribute_group *hcsr_groups[] = {
         &hcsr_group,
         NULL
 };
+#endif
 
 #endif
