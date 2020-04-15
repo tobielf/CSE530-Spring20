@@ -24,7 +24,7 @@
 
 #include <linux/platform_device.h>
 
-#include "hcsr04.h"
+#include "defs.h"
 #include "hcsr_device.h"
 #include "utils.h"
 #include "ring_buff.h"
@@ -33,32 +33,9 @@
 
 #define DEVICE_NAME_PREFIX      "HCSR_"         /**< Device prefix */
 #define CLASS_NAME              "HCSR"          /**< Class name in sysfs */
-#define BUFF_SIZE       (16)                    /**< Name buffer size */
 #define HISTORY_SIZE    (5)                     /**< Sampling history size */
 #define NUM_OF_OUTLIER  (2)                     /**< Outliers we are going to remove */
 #define MIN_INTERVAL    (60)                    /**< Minimal sampling interval in ms */
-
-typedef struct sample_data {
-        unsigned int count;                     /**< Number of samples */
-        unsigned long long *data;               /**< Sampling data storage */
-} sample_data_t;
-
-/** per device structure */
-struct hcsr_dev {
-        struct miscdevice miscdev;              /**< The miscdevice structure */
-        char name[BUFF_SIZE];                   /**< The name of the device */
-        parameters_setting_t params;            /**< Device parameters */
-        pins_setting_t pins;                    /**< Device pin settings */
-        int irq_no;                             /**< IRQ number for device */
-        mp_ring_buff_t *result_queue;           /**< FIFO result_queue queue */
-        sample_data_t sample_result;            /**< Storage for sample result */
-        atomic_t available;                     /**< Device singlton variable */
-        struct device *s_dev;                   /**< Sysfs device structure */
-        struct task_struct *tsk;                /**< Sampling thread */
-        int job_done;                           /**< Thread job flag */
-        int endless;                            /**< Nonstop measurement */
-        atomic_t most_recent;                   /**< Latest measurement */
-};
 
 static struct class_compat *s_dev_class = NULL; /**< Driver Compatible Class */
 
@@ -209,7 +186,7 @@ static ssize_t hcsr_distance_show(struct device *dev,
         ssize_t status;
 
         // get most recently measurement.
-        status = sprintf(buf, "%d\n", atomic_read(&devp->most_recent));
+        status = sprintf(buf, "%d\n", atomic_read(&devp->settings.most_recent));
 
         return status;
 }
@@ -224,7 +201,7 @@ static ssize_t hcsr_trigger_show(struct device *dev,
                                  char *buf) {
         hcsr_dev_t *devp = dev_get_drvdata(dev);
 
-        return sprintf(buf, "%d\n", devp->pins.trigger_pin);
+        return sprintf(buf, "%d\n", devp->settings.pins.trigger_pin);
 }
 
 static ssize_t hcsr_trigger_store(struct device *dev,
@@ -242,17 +219,17 @@ static ssize_t hcsr_trigger_store(struct device *dev,
                 hcsr_unlock(devp);
                 return -EINVAL;
         }
-        if (devp->pins.trigger_pin != -1)
-                hcsr04_fini_pins(devp->pins.trigger_pin);
+        if (devp->settings.pins.trigger_pin != -1)
+                hcsr04_fini_pins(devp->settings.pins.trigger_pin);
 
-        devp->pins.trigger_pin = -1;
+        devp->settings.pins.trigger_pin = -1;
 
         if (hcsr04_init_pins(pin, OUTPUT)) {
                 hcsr_unlock(devp);
                 return -EBUSY;
         }
 
-        devp->pins.trigger_pin = pin;
+        devp->settings.pins.trigger_pin = pin;
         // unlock the device, finish pin setting.
         hcsr_unlock(devp);
         return count;
@@ -268,7 +245,7 @@ static ssize_t hcsr_echo_show(struct device *dev,
                                  char *buf) {
         hcsr_dev_t *devp = dev_get_drvdata(dev);
 
-        return sprintf(buf, "%d\n", devp->pins.echo_pin);
+        return sprintf(buf, "%d\n", devp->settings.pins.echo_pin);
 }
 
 static ssize_t hcsr_echo_store(struct device *dev,
@@ -287,27 +264,27 @@ static ssize_t hcsr_echo_store(struct device *dev,
                 hcsr_unlock(devp);
                 return -EINVAL;
         }
-        if (devp->pins.echo_pin != -1)
-                hcsr04_fini_pins(devp->pins.echo_pin);
+        if (devp->settings.pins.echo_pin != -1)
+                hcsr04_fini_pins(devp->settings.pins.echo_pin);
 
         // Remove isr and irq_no
         hcsr_isr_exit(devp);
 
-        devp->pins.echo_pin = -1;
+        devp->settings.pins.echo_pin = -1;
 
         if (hcsr04_init_pins(pin, INPUT)) {
                 hcsr_unlock(devp);
                 return -EBUSY;
         }
 
-        devp->pins.echo_pin = pin;
+        devp->settings.pins.echo_pin = pin;
 
         // Setup isr and irq_no
         status = hcsr_isr_init(devp);
         if (status < 0) {
                 devp->irq_no = 0;
-                hcsr04_fini_pins(devp->pins.echo_pin);
-                devp->pins.echo_pin = -1;
+                hcsr04_fini_pins(devp->settings.pins.echo_pin);
+                devp->settings.pins.echo_pin = -1;
                 printk(KERN_ALERT "irq failed %d\n", status);
                 hcsr_unlock(devp);
                 return status;
@@ -328,7 +305,7 @@ static ssize_t hcsr_samples_show(struct device *dev,
                                  char *buf) {
         hcsr_dev_t *devp = dev_get_drvdata(dev);
 
-        return sprintf(buf, "%d\n", devp->params.m - NUM_OF_OUTLIER);
+        return sprintf(buf, "%d\n", devp->settings.params.m - NUM_OF_OUTLIER);
 }
 
 static ssize_t hcsr_samples_store(struct device *dev,
@@ -350,7 +327,7 @@ static ssize_t hcsr_samples_store(struct device *dev,
                 return -ENOMEM;
         }
 
-        devp->params.m = m + NUM_OF_OUTLIER;
+        devp->settings.params.m = m + NUM_OF_OUTLIER;
 
         // unlock the device
         hcsr_unlock(devp);
@@ -367,7 +344,7 @@ static ssize_t hcsr_interval_show(struct device *dev,
                                  char *buf) {
         hcsr_dev_t *devp = dev_get_drvdata(dev);
 
-        return sprintf(buf, "%d\n", devp->params.delta);
+        return sprintf(buf, "%d\n", devp->settings.params.delta);
 }
 
 static ssize_t hcsr_interval_store(struct device *dev,
@@ -384,7 +361,7 @@ static ssize_t hcsr_interval_store(struct device *dev,
         if (hcsr_lock(devp))
                 return -EBUSY;
 
-        devp->params.delta = val;
+        devp->settings.params.delta = val;
 
         // unlock the device
         hcsr_unlock(devp);
@@ -401,7 +378,7 @@ static ssize_t hcsr_enable_show(struct device *dev,
                                  char *buf) {
         hcsr_dev_t *devp = dev_get_drvdata(dev);
 
-        return sprintf(buf, "%d\n", devp->endless);
+        return sprintf(buf, "%d\n", devp->settings.endless);
 }
 
 static ssize_t hcsr_enable_store(struct device *dev,
@@ -416,10 +393,10 @@ static ssize_t hcsr_enable_store(struct device *dev,
                 // lock the device 
                 if (hcsr_lock(devp))
                         return -EBUSY;
-                devp->endless = val;
+                devp->settings.endless = val;
                 hcsr_new_task(devp);
         } else {
-                devp->endless = val;
+                devp->settings.endless = val;
         }
         return count;
 }
@@ -458,11 +435,11 @@ static int hcsr_sampling_thread(void *data) {
                         continue;
                 }
                 // save parameters.
-                delta = devp->params.delta;
-                trigger_pin = hcsr04_shield_to_gpio(devp->pins.trigger_pin);
+                delta = devp->settings.params.delta;
+                trigger_pin = hcsr04_shield_to_gpio(devp->settings.pins.trigger_pin);
 
                 do {
-                        m = devp->params.m;
+                        m = devp->settings.params.m;
                         // clear the sampling buffer before sampling.
                         devp->sample_result.count = 0;
                         // tell the compiler don't optimize the above code using Out of Order Execution.
@@ -496,8 +473,8 @@ static int hcsr_sampling_thread(void *data) {
 
                         // After sampling, we need to add to the result_queue buff.
                         ring_buff_put(devp->result_queue, res);
-                        atomic_set(&devp->most_recent, res->measurement);
-                } while (devp->endless);
+                        atomic_set(&devp->settings.most_recent, res->measurement);
+                } while (devp->settings.endless);
 
                 devp->job_done = 1;
 
@@ -533,7 +510,7 @@ static unsigned long long hcsr_get_pulse_width(hcsr_dev_t *devp) {
         unsigned long long small = UINT_MAX;
 
         // Go through the sampling result buffer.
-        for (i = 0; i < devp->params.m * 2; i+=2) {
+        for (i = 0; i < devp->settings.params.m * 2; i+=2) {
                 unsigned long long diff = devp->sample_result.data[i + 1] - 
                                           devp->sample_result.data[i];
                 if (diff < 0) {
@@ -550,7 +527,7 @@ static unsigned long long hcsr_get_pulse_width(hcsr_dev_t *devp) {
         sum -= large;
         sum -= small;
 
-        do_div(sum, (devp->params.m - NUM_OF_OUTLIER));
+        do_div(sum, (devp->settings.params.m - NUM_OF_OUTLIER));
         do_div(sum, 400);
         do_div(sum, 58);
 
@@ -571,7 +548,7 @@ static int hcsr_reallocate(hcsr_dev_t *devp, int m) {
 
 static int hcsr_isr_init(hcsr_dev_t *devp) {
         // Trigger and waiting for the response.
-        devp->irq_no = gpio_to_irq(hcsr04_shield_to_gpio(devp->pins.echo_pin));
+        devp->irq_no = gpio_to_irq(hcsr04_shield_to_gpio(devp->settings.pins.echo_pin));
         printk(KERN_INFO "irq no is: %d\n", devp->irq_no);
 
         // Check return value.
@@ -605,7 +582,7 @@ static ssize_t hcsr_read(struct file *filp, char *buf,
         result_info_t *result;
 
         // Invoke ioctl to setup the pins first.
-        if (devp->pins.trigger_pin == -1 || devp->pins.echo_pin == -1)
+        if (devp->settings.pins.trigger_pin == -1 || devp->settings.pins.echo_pin == -1)
                 return -EINVAL;
 
         // Security: comparing the count with sizeof(result), take the min one.
@@ -621,7 +598,7 @@ static ssize_t hcsr_read(struct file *filp, char *buf,
                 }
                 // Waiting for the sampling complete and read again.
                 while (ring_buff_get(devp->result_queue, (void **)&result)) {
-                        msleep(devp->params.m * (devp->params.delta));
+                        msleep(devp->settings.params.m * (devp->settings.params.delta));
                 }
         }
 
@@ -643,7 +620,7 @@ static ssize_t hcsr_write(struct file *filp, const char *buf,
         printk(KERN_INFO "count: %d sizeof: %d\n", count, sizeof(int));
 
         // Invoke ioctl to setup the pins first.
-        if (devp->pins.trigger_pin == -1 || devp->pins.echo_pin == -1)
+        if (devp->settings.pins.trigger_pin == -1 || devp->settings.pins.echo_pin == -1)
                 return -EINVAL;
 
         // Security: comparing the count with sizeof(int)
@@ -693,28 +670,28 @@ static long hcsr_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
                         hcsr_isr_exit(devp);
                         
                         // Remove previous GPIO setup
-                        if (hcsr04_config_fini(&devp->pins))
+                        if (hcsr04_config_fini(&devp->settings.pins))
                                 goto failed;
 
                         // Assign to the device.
-                        devp->pins.trigger_pin = -1;
-                        devp->pins.echo_pin = -1;
+                        devp->settings.pins.trigger_pin = -1;
+                        devp->settings.pins.echo_pin = -1;
                         
                         // Configure pins.
                         if (hcsr04_config_init(&pins))
                                 goto failed;
 
                         // Assign to the device.
-                        devp->pins.trigger_pin = pins.trigger_pin;
-                        devp->pins.echo_pin = pins.echo_pin;
+                        devp->settings.pins.trigger_pin = pins.trigger_pin;
+                        devp->settings.pins.echo_pin = pins.echo_pin;
 
                         // Setup isr and irq_no
                         ret = hcsr_isr_init(devp);
                         if (ret < 0) {
                                 devp->irq_no = 0;
-                                hcsr04_config_fini(&devp->pins);
-                                devp->pins.trigger_pin = -1;
-                                devp->pins.echo_pin = -1;
+                                hcsr04_config_fini(&devp->settings.pins);
+                                devp->settings.pins.trigger_pin = -1;
+                                devp->settings.pins.echo_pin = -1;
                                 printk(KERN_ALERT "irq failed. %d\n", ret);
                                 goto failed;
                         }
@@ -729,13 +706,13 @@ static long hcsr_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
                                 printk(KERN_ALERT "Should have at least 60ms\n");
                                 goto failed;
                         }
-                        devp->params.delta = params.delta;
+                        devp->settings.params.delta = params.delta;
 
                         // Reallocate the sampling buffer.
                         if (hcsr_reallocate(devp, params.m + NUM_OF_OUTLIER))
                                 goto failed;
                         // Assign to the device.
-                        devp->params.m = params.m + NUM_OF_OUTLIER;
+                        devp->settings.params.m = params.m + NUM_OF_OUTLIER;
                         break;
                 default:
                         hcsr_unlock(devp);
@@ -758,19 +735,19 @@ static int hcsr_init_one(struct hcsr_dev *devp) {
 
         // Initialized device lock.
         atomic_set(&devp->available, 1);
-        atomic_set(&devp->most_recent, 0);
+        atomic_set(&devp->settings.most_recent, 0);
 
         // Initialized default m and delta.
-        devp->params.m = 4;
-        devp->params.delta = 200;
+        devp->settings.params.m = 4;
+        devp->settings.params.delta = 200;
 
         // Initialized default pins.
-        devp->pins.trigger_pin = -1;
-        devp->pins.echo_pin = -1;
+        devp->settings.pins.trigger_pin = -1;
+        devp->settings.pins.echo_pin = -1;
 
         devp->irq_no = 0;
         devp->job_done = 1;
-        devp->endless = 0;
+        devp->settings.endless = 0;
 
         // Initialized the result_queue buff.
         devp->result_queue = ring_buff_init(HISTORY_SIZE, kfree); 
@@ -779,7 +756,7 @@ static int hcsr_init_one(struct hcsr_dev *devp) {
 
         // Initialized the sample_result buff.
         devp->sample_result.data = kmalloc(sizeof(unsigned long long) * 
-                                        devp->params.m * 2, GFP_KERNEL);
+                                        devp->settings.params.m * 2, GFP_KERNEL);
         if (devp->sample_result.data == NULL)
                 return -ENOMEM;
 
@@ -824,9 +801,9 @@ static void hcsr_fini_one(struct hcsr_dev *devp) {
         hcsr_isr_exit(devp);
 
         // Release the gpio setting.
-        hcsr04_config_fini(&devp->pins);
+        hcsr04_config_fini(&devp->settings.pins);
 
-        devp->endless = 0;
+        devp->settings.endless = 0;
 
         // Exit the thread.
         kthread_stop(devp->tsk);
