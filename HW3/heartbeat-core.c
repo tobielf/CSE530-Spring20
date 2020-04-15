@@ -19,10 +19,9 @@
 #include "common.h"
 #include "gpio_config.h"
 #include "max7219.h"
+#include "hcsr_drv.h"
 
-#define GENL_HB_HELLO_INTERVAL        5000      /**< Timeout to send reply */
-
-static struct timer_list timer;                 /**< Timer for the delay */
+static struct hcsr_dev hcsr04_sensor;           /**< HCSR04 sensor for distance measurement */
 
 static genl_hb_pins_t s_pins = {-1, -1, -1};    /**< Chip select, trigger, and echo pin */
 
@@ -89,6 +88,7 @@ static struct genl_family genl_hb_family = {
 
 static int genl_hb_rx_pin_config_msg(struct sk_buff* skb, struct genl_info* info)
 {
+        int ret;
         genl_hb_pins_t pins;
         if (!info->attrs[GENL_HB_ATTR_MSG]) {
                 printk(KERN_ERR "empty message from %d!!\n", info->snd_portid);
@@ -101,6 +101,9 @@ static int genl_hb_rx_pin_config_msg(struct sk_buff* skb, struct genl_info* info
         memcpy(&pins, nla_data(info->attrs[GENL_HB_ATTR_MSG]), sizeof(genl_hb_pins_t));
         printk(KERN_NOTICE "%u says chip_select:%d trigger:%d echo:%d\n", info->snd_portid,
                                 pins.chip_select, pins.trigger, pins.echo);
+
+        if (hcsr_lock(&hcsr04_sensor))
+                return -EBUSY;
 
         // Invoke GPIO module to configure pins.
         // Reverse previous settings.[ToDo]Check return values.
@@ -116,6 +119,13 @@ static int genl_hb_rx_pin_config_msg(struct sk_buff* skb, struct genl_info* info
                 quark_gpio_fini_pin(s_pins.echo);
                 s_pins.echo = -1;
         }
+
+        // Remove isr and irq_no
+        hcsr_isr_exit(&hcsr04_sensor);
+
+        // Assign to the device.
+        hcsr04_sensor.settings.pins.trigger_pin = -1;
+        hcsr04_sensor.settings.pins.echo_pin = -1;
         
         // Validate pins, not occupied.
         if (pins.chip_select == pins.trigger ||
@@ -135,7 +145,22 @@ static int genl_hb_rx_pin_config_msg(struct sk_buff* skb, struct genl_info* info
         s_pins.chip_select = pins.chip_select;
         s_pins.trigger = pins.trigger;
         s_pins.echo = pins.echo;
-        return 0;
+
+        // Assign to the device.
+        hcsr04_sensor.settings.pins.trigger_pin = pins.trigger;
+        hcsr04_sensor.settings.pins.echo_pin = pins.echo;
+
+        // Setup isr and irq_no
+        ret = hcsr_isr_init(&hcsr04_sensor);
+        if (ret < 0) {
+                hcsr04_sensor.irq_no = 0;
+                quark_gpio_fini_pin(hcsr04_sensor.settings.pins.echo_pin);
+                hcsr04_sensor.settings.pins.trigger_pin = -1;
+                hcsr04_sensor.settings.pins.echo_pin = -1;
+                printk(KERN_ALERT "irq failed. %d\n", ret);
+        }
+        hcsr_unlock(&hcsr04_sensor);
+        return ret;
 }
 
 static int genl_hb_rx_measure_msg(struct sk_buff* skb, struct genl_info* info) {
@@ -150,13 +175,18 @@ static int genl_hb_rx_measure_msg(struct sk_buff* skb, struct genl_info* info) {
 
         printk(KERN_NOTICE "Going to do the measurement.\n");
 
-        timer.data = (unsigned long)info->snd_portid;
-        timer.function = genl_hb_tx_distance_msg;
-        timer.expires = jiffies + msecs_to_jiffies(GENL_HB_HELLO_INTERVAL);
-        add_timer(&timer);
+        // Save context before starting a measurement.
+        hcsr04_sensor.on_complete.context = info->snd_portid;
+        hcsr04_sensor.on_complete.notify = genl_hb_tx_distance_msg;
 
-        // [ToDo] Invoke HCSR module to measure the distance.
+        // Invoke HCSR module to measure the distance.
+        // lock the device
+        if (hcsr_lock(&hcsr04_sensor))
+                return -EBUSY;
 
+        // start a new sampling by starting a new thread
+        hcsr_new_task(&hcsr04_sensor);
+        
         return 0;
 }
 
@@ -196,9 +226,8 @@ static int genl_hb_rx_display_msg(struct sk_buff* skb, struct genl_info* info) {
 
 static void genl_hb_tx_distance_msg(unsigned long data) {   
         void *hdr;
-        u32 portid = (u32)data;
+        u32 portid = hcsr04_sensor.on_complete.context;
         int res, flags = GFP_ATOMIC;
-        char msg[GENL_HB_ATTR_MSG_MAX];
         struct sk_buff* skb = genlmsg_new(NLMSG_DEFAULT_SIZE, flags);
 
         if (!skb) {
@@ -212,9 +241,7 @@ static void genl_hb_tx_distance_msg(unsigned long data) {
                 goto nlmsg_fail;
         }
 
-        snprintf(msg, GENL_HB_ATTR_MSG_MAX, "Hello world\n");
-
-        res = nla_put_string(skb, GENL_HB_ATTR_MSG, msg);
+        res = nla_put_u64(skb, GENL_HB_ATTR_DIS, data);
         if (res) {
                 printk(KERN_ERR "%d: err %d ", __LINE__, res);
                 goto nlmsg_fail;
@@ -234,10 +261,14 @@ nlmsg_fail:
 
 static int __init heartbeat_init(void) {
         int ret;
-        init_timer(&timer);
 
         // Initialize MAX7219 LED Driver.
         ret = max7219_device_init();
+        if (ret)
+                return -EINVAL;
+
+        // Initialize HCSR-04 Ultrasonic Driver.
+        ret = hcsr_init_one(&hcsr04_sensor);
         if (ret)
                 return -EINVAL;
 
@@ -256,20 +287,13 @@ static void heartbeat_exit(void) {
         // Remove MAX7219 Driver.
         max7219_device_exit();
 
+        // Remove HCSR04-04 Ultrasonic Driver.
+        hcsr_fini_one(&hcsr04_sensor);
+
         if (s_pins.chip_select != -1) {
                 quark_gpio_fini_pin(s_pins.chip_select);
                 s_pins.chip_select = -1;
         }
-        if (s_pins.trigger != -1) {
-                quark_gpio_fini_pin(s_pins.trigger);
-                s_pins.trigger = -1;
-        }
-        if (s_pins.echo != -1) {
-                quark_gpio_fini_pin(s_pins.echo);
-                s_pins.echo = -1;
-        }
-
-        del_timer(&timer);
 }
 
 module_init(heartbeat_init);

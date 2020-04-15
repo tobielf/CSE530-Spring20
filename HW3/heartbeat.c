@@ -64,13 +64,13 @@ static int print_rx_msg(struct nl_msg *msg, void* arg) {
     genlmsg_parse(nlmsg_hdr(msg), 0, attr, 
             GENL_HB_ATTR_MAX, genl_hb_policy);
 
-    if (!attr[GENL_HB_ATTR_MSG]) {
+    if (!attr[GENL_HB_ATTR_DIS]) {
         fprintf(stdout, "Kernel sent empty message!!\n");
         return NL_OK;
     }
 
-    fprintf(stdout, "Kernel says: %s \n", 
-        nla_get_string(attr[GENL_HB_ATTR_MSG]));
+    fprintf(stdout, "Kernel says: %llu \n", 
+        nla_get_u64(attr[GENL_HB_ATTR_DIS]));
 
     return NL_OK;
 }

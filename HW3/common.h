@@ -31,6 +31,7 @@ enum {
 enum genl_hb_attrs {
     GENL_HB_ATTR_UNSPEC,        /**< Must NOT use element 0 */
     GENL_HB_ATTR_MSG,           /**< Only one attribute, message */
+    GENL_HB_ATTR_DIS,           /**< Distance result, u64 */
     __GENL_HB_ATTR__MAX,
 };
 #define GENL_HB_ATTR_MAX (__GENL_HB_ATTR__MAX - 1)
@@ -53,7 +54,14 @@ static struct nla_policy genl_hb_policy[GENL_HB_ATTR_MAX+1] = {
 #else
                 .maxlen = GENL_HB_ATTR_MSG_MAX
 #endif
-    },
+        },[GENL_HB_ATTR_DIS] = {
+                .type = NLA_U64,
+#ifdef __KERNEL__
+                .len = GENL_HB_ATTR_MSG_MAX
+#else
+                .maxlen = GENL_HB_ATTR_MSG_MAX
+#endif
+        },
 };
 
 #endif
