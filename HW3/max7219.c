@@ -196,7 +196,7 @@ int max7219_send_msg(uint8_t *msg, int length) {
         struct spi_ioc_transfer tr = {
             .delay_usecs = 0,
             .speed_hz = 1000000,
-            .bits_per_word = 16,
+            .bits_per_word = 8,
             //.cs_change = true,
         };
 
@@ -228,7 +228,7 @@ int max7219_device_init(void) {
         if (!max7219_device)
                 return -ENODEV;
 
-        max7219_device->bits_per_word = 16;
+        max7219_device->bits_per_word = 8;
         max7219_device->max_speed_hz = 1000000;
         //max7219_device->cs_gpio = 40;
 

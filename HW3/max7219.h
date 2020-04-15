@@ -7,7 +7,7 @@
 #define __MAX7219_H__
 
 /**
- * @brief register the device when module is initiated
+ * @brief send the pattern message to the MAX7219 through SPI bus.
  * @param *msg, the message array.
  * @param len, the length of the array.
  * @return 0 on success, otherwise failed.

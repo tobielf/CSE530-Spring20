@@ -181,8 +181,8 @@ static int genl_hb_rx_display_msg(struct sk_buff* skb, struct genl_info* info) {
         cs_gpio = quark_gpio_shield_to_gpio(s_pins.chip_select);
 
         for (i = 0; i < 8; i++) {
-                tx[0] = pattern.led[i];
-                tx[1] = i + 1;
+                tx[0] = i + 1;
+                tx[1] = pattern.led[i];
                 gpio_set_value_cansleep(cs_gpio, 0);
                 barrier();
                 max7219_send_msg(tx, 2);
