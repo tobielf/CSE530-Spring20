@@ -16,7 +16,7 @@ APP = hcsr04
 TEST = tester
 
 obj-m:= hcsr04.o
-hcsr04-objs := hcsr04-core.o ring_buff.o hcsr_config.o
+hcsr04-objs := hcsr04-core.o ring_buff.o hcsr_config.o hcsr_sysfs.o
 obj-m+= hcsr-dev.o
 hcsr-dev-objs := hcsr_device.o
 

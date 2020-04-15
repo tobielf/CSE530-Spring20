@@ -29,13 +29,12 @@
 #include "utils.h"
 #include "ring_buff.h"
 #include "hcsr_config.h"
+#include "hcsr_sysfs.h"
 #include "common.h"
 
 #define DEVICE_NAME_PREFIX      "HCSR_"         /**< Device prefix */
 #define CLASS_NAME              "HCSR"          /**< Class name in sysfs */
 #define HISTORY_SIZE    (5)                     /**< Sampling history size */
-#define NUM_OF_OUTLIER  (2)                     /**< Outliers we are going to remove */
-#define MIN_INTERVAL    (60)                    /**< Minimal sampling interval in ms */
 
 static struct class_compat *s_dev_class = NULL; /**< Driver Compatible Class */
 
@@ -124,20 +123,20 @@ static long hcsr_ioctl(struct file *, unsigned int, unsigned long);
  * @return 0, successfully get the lock, otherwise -EBUSY indicates the device
  *         is busy.
  */
-static int hcsr_lock(hcsr_dev_t *);
+int hcsr_lock(hcsr_dev_t *);
 
 /**
  * @brief unlock the device.
  * @param devp, a valid device pointer.
  */
-static void hcsr_unlock(hcsr_dev_t *);
+void hcsr_unlock(hcsr_dev_t *);
 
 /**
  * @brief create a new sampling task.
  * @param devp, a valid device pointer.
  * @return 0, on success; otherwise failure.
  */
-static int hcsr_new_task(hcsr_dev_t *);
+int hcsr_new_task(hcsr_dev_t *);
 
 /**
  * @brief compute the distance.
@@ -152,19 +151,19 @@ static unsigned long long hcsr_get_pulse_width(hcsr_dev_t *);
  * @param m, new buffer size.
  * @return 0 on success, otherwise failed.
  */
-static int hcsr_reallocate(hcsr_dev_t *, int);
+int hcsr_reallocate(hcsr_dev_t *, int);
 
 /**
  * @brief initialize the interrupt service routine.
  * @param devp, a valid pointer to device object.
  */
-static int hcsr_isr_init(hcsr_dev_t *);
+int hcsr_isr_init(hcsr_dev_t *);
 
 /**
  * @brief unregister the interrupt service routine.
  * @param devp, a valid pointer to device object.
  */
-static int hcsr_isr_exit(hcsr_dev_t *);
+int hcsr_isr_exit(hcsr_dev_t *);
 
 /** File operations supported by this driver */
 struct file_operations fops = {
@@ -174,252 +173,6 @@ struct file_operations fops = {
         .read = hcsr_read,
         .write = hcsr_write,
         .unlocked_ioctl = hcsr_ioctl
-};
-
-/** ==========================================================================
- *                      Distance sysfs attribute
- *============================================================================*/
-static ssize_t hcsr_distance_show(struct device *dev,
-                                  struct device_attribute *attr,
-                                  char *buf) {
-        hcsr_dev_t *devp = dev_get_drvdata(dev);
-        ssize_t status;
-
-        // get most recently measurement.
-        status = sprintf(buf, "%d\n", atomic_read(&devp->settings.most_recent));
-
-        return status;
-}
-
-static DEVICE_ATTR(distance, S_IRUSR, hcsr_distance_show, NULL);
-
-/** ==========================================================================
- *                      Trigger sysfs attribute
- *============================================================================*/
-static ssize_t hcsr_trigger_show(struct device *dev,
-                                 struct device_attribute *attr,
-                                 char *buf) {
-        hcsr_dev_t *devp = dev_get_drvdata(dev);
-
-        return sprintf(buf, "%d\n", devp->settings.pins.trigger_pin);
-}
-
-static ssize_t hcsr_trigger_store(struct device *dev,
-                                  struct device_attribute *attr,
-                                  const char *buf,
-                                  size_t count) {
-        int pin;
-        int status;
-        hcsr_dev_t *devp = dev_get_drvdata(dev);
-        status = sscanf(buf, "%d", &pin);
-        // lock the device, make sure no measurement using the pin.
-        if (hcsr_lock(devp))
-                return -EBUSY;
-        if (hcsr04_config_validate_pin(pin)) {
-                hcsr_unlock(devp);
-                return -EINVAL;
-        }
-        if (devp->settings.pins.trigger_pin != -1)
-                hcsr04_fini_pins(devp->settings.pins.trigger_pin);
-
-        devp->settings.pins.trigger_pin = -1;
-
-        if (hcsr04_init_pins(pin, OUTPUT)) {
-                hcsr_unlock(devp);
-                return -EBUSY;
-        }
-
-        devp->settings.pins.trigger_pin = pin;
-        // unlock the device, finish pin setting.
-        hcsr_unlock(devp);
-        return count;
-}
-
-static DEVICE_ATTR(trigger, S_IRUSR | S_IWUSR, hcsr_trigger_show, hcsr_trigger_store);
-
-/** ==========================================================================
- *                      Echo sysfs attribute
- *============================================================================*/
-static ssize_t hcsr_echo_show(struct device *dev,
-                                 struct device_attribute *attr,
-                                 char *buf) {
-        hcsr_dev_t *devp = dev_get_drvdata(dev);
-
-        return sprintf(buf, "%d\n", devp->settings.pins.echo_pin);
-}
-
-static ssize_t hcsr_echo_store(struct device *dev,
-                                  struct device_attribute *attr,
-                                  const char *buf,
-                                  size_t count) {
-        int pin;
-        int status;
-        hcsr_dev_t *devp = dev_get_drvdata(dev);
-        status = sscanf(buf, "%d", &pin);
-        // lock the device, make sure no measurement using the pin.
-        if (hcsr_lock(devp))
-                return -EBUSY;
-        if (hcsr04_config_validate_pin(pin) ||
-            hcsr04_config_validate_echo(pin)) {
-                hcsr_unlock(devp);
-                return -EINVAL;
-        }
-        if (devp->settings.pins.echo_pin != -1)
-                hcsr04_fini_pins(devp->settings.pins.echo_pin);
-
-        // Remove isr and irq_no
-        hcsr_isr_exit(devp);
-
-        devp->settings.pins.echo_pin = -1;
-
-        if (hcsr04_init_pins(pin, INPUT)) {
-                hcsr_unlock(devp);
-                return -EBUSY;
-        }
-
-        devp->settings.pins.echo_pin = pin;
-
-        // Setup isr and irq_no
-        status = hcsr_isr_init(devp);
-        if (status < 0) {
-                devp->irq_no = 0;
-                hcsr04_fini_pins(devp->settings.pins.echo_pin);
-                devp->settings.pins.echo_pin = -1;
-                printk(KERN_ALERT "irq failed %d\n", status);
-                hcsr_unlock(devp);
-                return status;
-        }
-
-        // unlock the device, finish pin setting.
-        hcsr_unlock(devp);
-        return count;
-}
-
-static DEVICE_ATTR(echo, S_IRUSR | S_IWUSR, hcsr_echo_show, hcsr_echo_store);
-
-/** ==========================================================================
- *                      Samples sysfs attribute
- *============================================================================*/
-static ssize_t hcsr_samples_show(struct device *dev,
-                                 struct device_attribute *attr,
-                                 char *buf) {
-        hcsr_dev_t *devp = dev_get_drvdata(dev);
-
-        return sprintf(buf, "%d\n", devp->settings.params.m - NUM_OF_OUTLIER);
-}
-
-static ssize_t hcsr_samples_store(struct device *dev,
-                                  struct device_attribute *attr,
-                                  const char *buf,
-                                  size_t count) {
-        int m;
-        int status;
-        hcsr_dev_t *devp = dev_get_drvdata(dev);
-        status = sscanf(buf, "%d", &m);
-        if (m < 1)
-                return -EINVAL;
-        // lock the device 
-        if (hcsr_lock(devp))
-                return -EBUSY;
-        // update m
-        if (hcsr_reallocate(devp, m + NUM_OF_OUTLIER)) {
-                hcsr_unlock(devp);
-                return -ENOMEM;
-        }
-
-        devp->settings.params.m = m + NUM_OF_OUTLIER;
-
-        // unlock the device
-        hcsr_unlock(devp);
-        return count;
-}
-
-static DEVICE_ATTR(number_samples, S_IRUSR | S_IWUSR, hcsr_samples_show, hcsr_samples_store);
-
-/** ==========================================================================
- *                      Interval sysfs attribute
- *============================================================================*/
-static ssize_t hcsr_interval_show(struct device *dev,
-                                 struct device_attribute *attr,
-                                 char *buf) {
-        hcsr_dev_t *devp = dev_get_drvdata(dev);
-
-        return sprintf(buf, "%d\n", devp->settings.params.delta);
-}
-
-static ssize_t hcsr_interval_store(struct device *dev,
-                                  struct device_attribute *attr,
-                                  const char *buf,
-                                  size_t count) {
-        int val;
-        hcsr_dev_t *devp = dev_get_drvdata(dev);
-
-        sscanf(buf, "%d", &val);
-        if (val < MIN_INTERVAL)
-                return -EINVAL;
-        // lock the device 
-        if (hcsr_lock(devp))
-                return -EBUSY;
-
-        devp->settings.params.delta = val;
-
-        // unlock the device
-        hcsr_unlock(devp);
-        return count;
-}
-
-static DEVICE_ATTR(sampling_period, S_IRUSR | S_IWUSR, hcsr_interval_show, hcsr_interval_store);
-
-/** ==========================================================================
- *                      Enable sysfs attribute
- *============================================================================*/
-static ssize_t hcsr_enable_show(struct device *dev,
-                                 struct device_attribute *attr,
-                                 char *buf) {
-        hcsr_dev_t *devp = dev_get_drvdata(dev);
-
-        return sprintf(buf, "%d\n", devp->settings.endless);
-}
-
-static ssize_t hcsr_enable_store(struct device *dev,
-                                  struct device_attribute *attr,
-                                  const char *buf,
-                                  size_t count) {
-        int val;
-        hcsr_dev_t *devp = dev_get_drvdata(dev);
-
-        sscanf(buf, "%d", &val);
-        if (val) {
-                // lock the device 
-                if (hcsr_lock(devp))
-                        return -EBUSY;
-                devp->settings.endless = val;
-                hcsr_new_task(devp);
-        } else {
-                devp->settings.endless = val;
-        }
-        return count;
-}
-
-static DEVICE_ATTR(enable, S_IRUSR | S_IWUSR, hcsr_enable_show, hcsr_enable_store);
-
-static struct attribute *hcsr_attrs[] = {
-        &dev_attr_distance.attr,
-        &dev_attr_trigger.attr,
-        &dev_attr_echo.attr,
-        &dev_attr_number_samples.attr,
-        &dev_attr_sampling_period.attr,
-        &dev_attr_enable.attr,
-        NULL,
-};
-
-static const struct attribute_group hcsr_group = {
-        .attrs = hcsr_attrs,
-};
-
-static const struct attribute_group *hcsr_groups[] = {
-        &hcsr_group,
-        NULL
 };
 
 static int hcsr_sampling_thread(void *data) {
@@ -485,7 +238,7 @@ static int hcsr_sampling_thread(void *data) {
         return 0;
 }
 
-static int hcsr_lock(hcsr_dev_t *devp) {
+int hcsr_lock(hcsr_dev_t *devp) {
         if (!atomic_dec_and_test(&devp->available)) {
                 atomic_inc(&devp->available);
                 return -EBUSY;
@@ -493,11 +246,11 @@ static int hcsr_lock(hcsr_dev_t *devp) {
         return 0;
 }
 
-static void hcsr_unlock(hcsr_dev_t *devp) {
+void hcsr_unlock(hcsr_dev_t *devp) {
         atomic_inc(&devp->available);
 }
 
-static int hcsr_new_task(hcsr_dev_t *devp) {
+int hcsr_new_task(hcsr_dev_t *devp) {
         // start a new sampling by starting a new thread
         devp->job_done = 0;
         return 0;
@@ -534,7 +287,7 @@ static unsigned long long hcsr_get_pulse_width(hcsr_dev_t *devp) {
         return sum;
 }
 
-static int hcsr_reallocate(hcsr_dev_t *devp, int m) {
+int hcsr_reallocate(hcsr_dev_t *devp, int m) {
         unsigned long long *data = kmalloc(sizeof(unsigned long long) * m * 2,
                                            GFP_KERNEL);
         if (data == NULL) {
@@ -546,7 +299,7 @@ static int hcsr_reallocate(hcsr_dev_t *devp, int m) {
         return 0;
 }
 
-static int hcsr_isr_init(hcsr_dev_t *devp) {
+int hcsr_isr_init(hcsr_dev_t *devp) {
         // Trigger and waiting for the response.
         devp->irq_no = gpio_to_irq(hcsr04_shield_to_gpio(devp->settings.pins.echo_pin));
         printk(KERN_INFO "irq no is: %d\n", devp->irq_no);
@@ -557,7 +310,7 @@ static int hcsr_isr_init(hcsr_dev_t *devp) {
                                 "hcsr04", (void *)&devp->sample_result);
 }
 
-static int hcsr_isr_exit(hcsr_dev_t *devp) {
+int hcsr_isr_exit(hcsr_dev_t *devp) {
         if (devp->irq_no)
                 free_irq(devp->irq_no, (void *)&devp->sample_result);
         return 0;

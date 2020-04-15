@@ -13,6 +13,9 @@
 #include "common.h"
 
 #define BUFF_SIZE       (16)                    /**< Name buffer size */
+#define NUM_OF_OUTLIER  (2)                     /**< Outliers we are going to remove */
+#define MIN_INTERVAL    (60)                    /**< Minimal sampling interval in ms */
+
 
 typedef struct sample_data {
         unsigned int count;                     /**< Number of samples */
