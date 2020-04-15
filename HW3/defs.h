@@ -45,11 +45,19 @@ struct hcsr04_sysfs {
         int endless;                            /**< Nonstop measurement */
 };
 
+typedef void(*cb_func)(unsigned long);
+
+struct hcsr_cb {
+        unsigned long context;                  /**< Saved context for call back function */
+        cb_func notify;                         /**< Call back function to notify the result */
+};
+
 /** per device structure */
 struct hcsr_dev {
         struct miscdevice miscdev;              /**< The miscdevice structure */
         char name[BUFF_SIZE];                   /**< The name of the device */
         struct hcsr04_sysfs settings;           /**< Sysfs settings */
+        struct hcsr_cb on_complete;             /**< Call back function on complete */
         int irq_no;                             /**< IRQ number for device */
         mp_ring_buff_t *result_queue;           /**< FIFO result_queue queue */
         sample_data_t sample_result;            /**< Storage for sample result */

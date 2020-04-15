@@ -22,6 +22,8 @@
 #include "utils.h"
 
 #define HISTORY_SIZE    (5)                     /**< Sampling history size */
+#define DEFAULT_M       (7)                     /**< Default value for m */
+#define DEFAULT_DELTA   (60)                   /**< Default value for delta */
 
 /**
  * @brief: handling the echo pin interrupt.
@@ -111,12 +113,16 @@ int hcsr_init_one(struct hcsr_dev *devp) {
         atomic_set(&devp->settings.most_recent, 0);
 
         // Initialized default m and delta.
-        devp->settings.params.m = 5;
+        devp->settings.params.m = DEFAULT_M;
         devp->settings.params.delta = 60;
 
         // Initialized default pins.
         devp->settings.pins.trigger_pin = -1;
         devp->settings.pins.echo_pin = -1;
+
+        // Initialized default call back.
+        devp->on_complete.context = 0;
+        devp->on_complete.notify = NULL;
 
         devp->irq_no = 0;
         devp->job_done = 1;
@@ -152,8 +158,12 @@ void hcsr_fini_one(struct hcsr_dev *devp) {
         hcsr_isr_exit(devp);
 
         // Release the gpio setting.
-        quark_gpio_fini_pin(devp->settings.pins.trigger_pin);
-        quark_gpio_fini_pin(devp->settings.pins.echo_pin);
+        if (devp->settings.pins.trigger_pin != -1) {
+            quark_gpio_fini_pin(devp->settings.pins.trigger_pin);
+        }
+        if (devp->settings.pins.echo_pin != -1) {
+            quark_gpio_fini_pin(devp->settings.pins.echo_pin);
+        }
 
         devp->settings.endless = 0;
 
@@ -194,7 +204,7 @@ static int hcsr_sampling_thread(void *data) {
                         // Now we can safely start trigger m times.
                         while (m > 0) {
                                 gpio_set_value_cansleep(trigger_pin, 1);
-                                udelay(20);
+                                udelay(10);
                                 gpio_set_value_cansleep(trigger_pin, 0);
                                 msleep(delta);
                                 printk(KERN_INFO "sampling %d\n", m);
@@ -219,6 +229,10 @@ static int hcsr_sampling_thread(void *data) {
                         // After sampling, we need to add to the result_queue buff.
                         ring_buff_put(devp->result_queue, res);
                         atomic_set(&devp->settings.most_recent, res->measurement);
+                        // Do we need to notify someone?
+                        if (devp->on_complete.notify != NULL) {
+                                devp->on_complete.notify((unsigned long)res->measurement);
+                        }
                 } while (devp->settings.endless);
 
                 devp->job_done = 1;
