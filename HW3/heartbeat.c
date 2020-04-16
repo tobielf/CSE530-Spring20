@@ -116,7 +116,6 @@ int main(int argc, char *argv[]) {
     uint8_t small_heart[8] = {0x00, 0x1c, 0x22, 0x44, 0x44, 0x22, 0x1c, 0x00};
     uint8_t blank[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     genl_hb_pins_t ps;
-    genl_hb_pins_t *check;
 
     if (argc < 4) {
         printf("Usage: ./heart chip_select trigger echo\n");
@@ -132,8 +131,7 @@ int main(int argc, char *argv[]) {
     memcpy(message, &ps, sizeof(genl_hb_pins_t));
     message[sizeof(genl_hb_pins_t)] = '\0';
 
-    check = (genl_hb_pins_t *)message;
-    printf("Trigger:%d, Echo:%d\n", check->trigger, check->echo);
+    printf("Trigger:%d, Echo:%d\n", ps.trigger, ps.echo);
 
     send_msg_to_kernel(nlsock, GENL_HB_CONFIG_MSG, sizeof(genl_hb_pins_t));
     send_msg_to_kernel(nlsock, GENL_HB_MEASURE_MSG, sizeof(genl_hb_pins_t));
