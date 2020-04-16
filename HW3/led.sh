@@ -1,37 +1,37 @@
 
 
-./spi_tester -p "\x1c\x01" -s 10 -b16; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
+./spi_tester -p "\x01\x1c"; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
 
-./spi_tester -p "\x22\x02" -s 10 -b16; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
+./spi_tester -p "\x02\x22"; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
 
-./spi_tester -p "\x41\x03" -s 10 -b16; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
+./spi_tester -p "\x03\x41"; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
 
-./spi_tester -p "\x82\x04" -s 10 -b16; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
+./spi_tester -p "\x04\x82"; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
 
-./spi_tester -p "\x82\x05" -s 10 -b16; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
+./spi_tester -p "\x05\x82"; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
 
-./spi_tester -p "\x41\x06" -s 10 -b16; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
+./spi_tester -p "\x06\x41"; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
 
-./spi_tester -p "\x22\x07" -s 10 -b16; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
+./spi_tester -p "\x07\x22"; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
 
-./spi_tester -p "\x1c\x08" -s 10 -b16; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
+./spi_tester -p "\x08\x1c"; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
 
 sleep 1;
 
-./spi_tester -p "\x00\x01" -s 10 -b16; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
+./spi_tester -p "\x01\x00"; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
 
-./spi_tester -p "\x1c\x02" -s 10 -b16; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
+./spi_tester -p "\x02\x1c"; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
 
-./spi_tester -p "\x22\x03" -s 10 -b16; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
+./spi_tester -p "\x03\x22"; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
 
-./spi_tester -p "\x44\x04" -s 10 -b16; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
+./spi_tester -p "\x04\x44"; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
 
-./spi_tester -p "\x44\x05" -s 10 -b16; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
+./spi_tester -p "\x05\x44"; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
 
-./spi_tester -p "\x22\x06" -s 10 -b16; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
+./spi_tester -p "\x06\x22"; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
 
-./spi_tester -p "\x1c\x07" -s 10 -b16; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
+./spi_tester -p "\x07\x1c"; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
 
-./spi_tester -p "\x00\x08" -s 10 -b16; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
+./spi_tester -p "\x08\x00"; echo 1 > /sys/class/gpio/gpio40/value ; echo 0 > /sys/class/gpio/gpio40/value
 
 sleep 1;
