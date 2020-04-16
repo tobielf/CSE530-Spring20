@@ -353,6 +353,8 @@ static int hcsr_driver_probe(struct platform_device *pdevp)
 
         sysfs_create_files(&(pdevp->dev.kobj), (const struct attribute **)hcsr_attrs);
 
+        //[ToDo] Add to the device list.
+
         return ret;
 };
 
@@ -374,6 +376,8 @@ static int hcsr_driver_remove(struct platform_device *pdevp)
 
         kfree(hdevp->dev);
 
+        //[ToDo] Remove from the device list.
+
         return 0;
 };
 
@@ -393,6 +397,8 @@ static int hcsr04_init(void) {
 
         platform_driver_register(&hcsr_of_driver);
 
+        // [ToDo] Maintain a device list initialized by this driver.
+
         return 0;
 }
 static void hcsr04_exit(void) {
@@ -400,6 +406,8 @@ static void hcsr04_exit(void) {
 
         // Destroy driver_class
         class_compat_unregister(s_dev_class);
+
+        // [ToDo] Clear up the device on the list.
 }
 #endif //NORMAL_MODULE
 
