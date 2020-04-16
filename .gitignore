@@ -52,3 +52,7 @@ Mkfile.old
 dkms.conf
 sftp-config.json
 submissions/
+HW3/libnl-libnl3_2_20/
+result.txt
+scan.txt
+run.sh
