@@ -8,14 +8,27 @@
 
 #include <errno.h>
 
+#include <pthread.h>
+#include <stdatomic.h>
+
 #include <netlink/msg.h>
 #include <netlink/attr.h>
 
 #include "common.h"
 
-static char message[GENL_HB_ATTR_MSG_MAX];
+#ifndef GRADING
+#define MAX7219_CS_PIN (8)
+#define HCSR04_TRIGGER_PIN (7)
+#define HCSR04_ECHO_PIN (6)
+#endif
 
-static int send_msg_to_kernel(struct nl_sock *sock, int type, int length) {
+#define MS_SCALE    (1000)          /**< 1 Milli-seconds */
+
+static pthread_t dis_measure;       /**< A thread to measure the distance */
+
+volatile atomic_int distance = 100; /**< atomic variable for IPC */
+
+static int send_msg_to_kernel(struct nl_sock *sock, char *message, int type, int length) {
     struct nl_msg* msg;
     int family_id, err = 0;
 
@@ -58,7 +71,7 @@ static int skip_seq_check(struct nl_msg *msg, void *arg) {
     return NL_OK;
 }
 
-static int print_rx_msg(struct nl_msg *msg, void* arg) {
+static int on_distance(struct nl_msg *msg, void* arg) {
     struct nlattr *attr[GENL_HB_ATTR_MAX+1];
 
     genlmsg_parse(nlmsg_hdr(msg), 0, attr, 
@@ -71,6 +84,8 @@ static int print_rx_msg(struct nl_msg *msg, void* arg) {
 
     fprintf(stdout, "Kernel says: %llu \n", 
         nla_get_u64(attr[GENL_HB_ATTR_DIS]));
+
+    distance = nla_get_u64(attr[GENL_HB_ATTR_DIS]);
 
     return NL_OK;
 }
@@ -108,13 +123,36 @@ exit_err:
     exit(EXIT_FAILURE);
 }
 
-int main(int argc, char *argv[]) {
+void *dis_thread(void *vargp) {
     struct nl_sock* nlsock = NULL;
     struct nl_cb *cb = NULL;
     int ret;
+    char message[GENL_HB_ATTR_MSG_MAX];
+
+    prep_nl_sock(&nlsock);
+
+    /* preparing for the respond callback */
+    cb = nl_cb_alloc(NL_CB_DEFAULT);
+    nl_cb_set(cb, NL_CB_SEQ_CHECK, NL_CB_CUSTOM, skip_seq_check, NULL);
+    nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, on_distance, NULL);
+    do {
+        send_msg_to_kernel(nlsock, message, GENL_HB_MEASURE_MSG, 8);
+        ret = nl_recvmsgs(nlsock, cb);
+        usleep(100 * MS_SCALE);
+    } while (!ret);
+
+    nl_cb_put(cb);
+    nl_socket_free(nlsock);
+
+    return NULL;
+}
+
+int main(int argc, char *argv[]) {
+    struct nl_sock* nlsock = NULL;
+    char message[GENL_HB_ATTR_MSG_MAX];
+    int sleep_time = 100;
     uint8_t big_heart[8] = {0x1c, 0x22, 0x41, 0x82, 0x82, 0x41, 0x22, 0x1c};
     uint8_t small_heart[8] = {0x00, 0x1c, 0x22, 0x44, 0x44, 0x22, 0x1c, 0x00};
-    uint8_t blank[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     genl_hb_pins_t ps;
 
     if (argc < 4) {
@@ -132,28 +170,35 @@ int main(int argc, char *argv[]) {
     message[sizeof(genl_hb_pins_t)] = '\0';
 
     printf("Trigger:%d, Echo:%d\n", ps.trigger, ps.echo);
+    printf("CS:%d, Trigger:%d, Echo:%d\n", MAX7219_CS_PIN, HCSR04_TRIGGER_PIN, HCSR04_ECHO_PIN);
 
-    send_msg_to_kernel(nlsock, GENL_HB_CONFIG_MSG, sizeof(genl_hb_pins_t));
-    send_msg_to_kernel(nlsock, GENL_HB_MEASURE_MSG, sizeof(genl_hb_pins_t));
+    send_msg_to_kernel(nlsock, message, GENL_HB_CONFIG_MSG, sizeof(genl_hb_pins_t));
 
-    memcpy(message, big_heart, 8 * sizeof(uint8_t));
-    send_msg_to_kernel(nlsock, GENL_HB_DISPLAY_MSG, sizeof(genl_hb_pattern_t));
+    pthread_create(&dis_measure, NULL, dis_thread, NULL);
 
-    usleep(100);
+    while (1) {
+        sleep_time = distance * 10 * MS_SCALE;
+        if (sleep_time < 500 * MS_SCALE) {
+            sleep_time = 500 * MS_SCALE;
+        } else if (sleep_time > 2000 * MS_SCALE) {
+            sleep_time = 2000 * MS_SCALE;
+        }
+        printf("Updated sleep time:%d\n", sleep_time);
 
-    memcpy(message, small_heart, 8 * sizeof(uint8_t));
-    send_msg_to_kernel(nlsock, GENL_HB_DISPLAY_MSG, sizeof(genl_hb_pattern_t));
-
-    /* preparing for the respond callback */
-    cb = nl_cb_alloc(NL_CB_DEFAULT);
-    nl_cb_set(cb, NL_CB_SEQ_CHECK, NL_CB_CUSTOM, skip_seq_check, NULL);
-    nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, print_rx_msg, NULL);
-    do {
-        ret = nl_recvmsgs(nlsock, cb);
-    } while (!ret);
+        memcpy(message, big_heart, 8 * sizeof(uint8_t));
+        send_msg_to_kernel(nlsock, message, GENL_HB_DISPLAY_MSG, sizeof(genl_hb_pattern_t));
     
-    nl_cb_put(cb);
+        usleep(sleep_time);
+    
+        memcpy(message, small_heart, 8 * sizeof(uint8_t));
+        send_msg_to_kernel(nlsock, message, GENL_HB_DISPLAY_MSG, sizeof(genl_hb_pattern_t));
+
+        usleep(sleep_time);
+    }
+
     nl_socket_free(nlsock);
+
+    pthread_join(dis_measure, NULL);
 
     return 0;
 }
