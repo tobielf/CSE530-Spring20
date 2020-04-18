@@ -12,8 +12,6 @@
 #include <linux/module.h>
 #include <linux/gpio.h>
 
-#include <linux/delay.h>
-
 #include <net/genetlink.h>
 
 #include "common.h"
@@ -105,6 +103,8 @@ static int genl_hb_rx_pin_config_msg(struct sk_buff* skb, struct genl_info* info
         if (hcsr_lock(&hcsr04_sensor))
                 return -EBUSY;
 
+        // [ToDo] Check Max7219 is busy or not. (Lock in the work function).
+
         // Invoke GPIO module to configure pins.
         // Reverse previous settings.[ToDo]Check return values.
         if (s_pins.chip_select != -1) {
@@ -160,6 +160,9 @@ static int genl_hb_rx_pin_config_msg(struct sk_buff* skb, struct genl_info* info
                 printk(KERN_ALERT "irq failed. %d\n", ret);
         }
         hcsr_unlock(&hcsr04_sensor);
+
+        max7219_device_config(s_pins.chip_select);
+        //[ToDo] unlock Max7219
         return ret;
 }
 
@@ -191,9 +194,6 @@ static int genl_hb_rx_measure_msg(struct sk_buff* skb, struct genl_info* info) {
 }
 
 static int genl_hb_rx_display_msg(struct sk_buff* skb, struct genl_info* info) {
-        int cs_gpio;
-        uint8_t i;
-        uint8_t tx[2];
         genl_hb_pattern_t pattern;
 
         if (!info->attrs[GENL_HB_ATTR_MSG]) {
@@ -208,18 +208,7 @@ static int genl_hb_rx_display_msg(struct sk_buff* skb, struct genl_info* info) {
 
         printk(KERN_NOTICE "Going to display the pattern.\n");
         // [ToDo] Check chip_select initialized.
-        cs_gpio = quark_gpio_shield_to_gpio(s_pins.chip_select);
-
-        for (i = 0; i < 8; i++) {
-                tx[0] = i + 1;
-                tx[1] = pattern.led[i];
-                gpio_set_value_cansleep(cs_gpio, 0);
-                barrier();
-                max7219_send_msg(tx, 2);
-                barrier();
-                gpio_set_value_cansleep(cs_gpio, 1);
-                mdelay(10);
-        }
+        max7219_send_msg(pattern.led, sizeof(genl_hb_pattern_t), s_pins.chip_select);
 
         return 0;
 }

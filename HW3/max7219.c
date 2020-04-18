@@ -7,6 +7,12 @@
 #include <linux/spi/spi.h>
 #include <linux/gpio.h>
 
+#include <linux/delay.h>
+
+#include <linux/workqueue.h>
+
+#include "gpio_config.h"
+
 #define SPI_DIR         (24)                    /**< SPI Direction GPIO pin */
 #define SPI_MUX1        (44)                    /**< SPI MUX1 GPIO pin */
 #define SPI_MUX2        (72)                    /**< SPI MUX2 GPIO pin */
@@ -14,7 +20,33 @@
 #define SCK_DIR         (30)                    /**< SCK Direction GPIO pin */
 #define SCK_MUX1        (46)                    /**< SCK MUX1 GPIO pin */
 
-static struct spi_device *max7219_device = NULL;
+#define NUM_OF_COLUMNS  (8)                     /**< Number of the columns in LED Matrix */
+
+/** @reference https://datasheets.maximintegrated.com/en/ds/MAX7219-MAX7221.pdf 
+ *  This document explained the details about how MAX7219 register works.
+ */
+#define DECODE_MODE     (0x09)                  /**< Decode mode register address */
+#define SCAN_LIMIT      (0x0b)                  /**< Scan limit register address */
+#define SHUTDOWN_MODE   (0x0c)                  /**< Shutdown mode register address */
+#define TEST_DISPLAY    (0x0f)                  /**< Test display register address */
+
+static uint8_t s_init_sequence[][2] = {
+        {SHUTDOWN_MODE, 0x01},
+        {SCAN_LIMIT, 0x07},
+        {TEST_DISPLAY, 0x00},
+        {DECODE_MODE, 0x00},
+        {0xff, 0xff},
+};
+
+// [ToDo] for more than one device.
+static struct spi_device *max7219_device = NULL;        /**< SPI device structure */
+static struct workqueue_struct *max7219_wq = NULL;      /**< Work queue for one device */
+
+typedef struct {
+        struct work_struct display_work;
+        int cs_pin;
+        uint8_t led[NUM_OF_COLUMNS];
+} display_work_t;
 
 static struct spi_board_info max7219_info = {
         .modalias = "max7219-led",
@@ -162,7 +194,23 @@ done:
  */
 static int max7219_setup(void);
 
+/**
+ * @brief teardown multiplexing for SPI
+ */
 static void max7219_teardown(void);
+
+/**
+ * @brief send out one MAX7219 format message on SPI bus.
+ * @param address, D15-D8 stands for the register address.
+ * @param data, D7-D0 stands for the register data.
+ */
+static void max7219_send_one_msg(uint8_t, uint8_t);
+
+/**
+ * @brief a work queue function to send the data.
+ * @param work, the work structure.
+ */
+static void max7219_work_function(struct work_struct *);
 
 static int max7219_setup(void) {
         int ret;
@@ -186,13 +234,8 @@ static void max7219_teardown(void) {
         gpio_free(SCK_MUX1);
 }
 
-/**
- * @brief register the device when module is initiated
- * @param *msg, the message array.
- * @param len, the length of the array.
- * @return 0 on success, otherwise failed.
- */
-int max7219_send_msg(uint8_t *msg, int length) {
+static void max7219_send_one_msg(uint8_t address, uint8_t data) {
+        uint8_t tx[2];
         struct spi_ioc_transfer tr = {
             .delay_usecs = 0,
             .speed_hz = 1000000,
@@ -200,11 +243,75 @@ int max7219_send_msg(uint8_t *msg, int length) {
             //.cs_change = true,
         };
 
-        tr.tx_buf = (unsigned long)msg;
+        tr.tx_buf = (unsigned long)tx;
         tr.len = 2;
 
+        tx[0] = address;
+        tx[1] = data;
+
         spidev_message(&spidev, &tr, 1);
-        return 0;
+}
+
+static void max7219_work_function(struct work_struct *work) {
+        // We are not using contianer_of here, since the struct layout.
+        display_work_t *my_work = (display_work_t *)work;
+        uint8_t i;
+        int cs_gpio;
+
+        cs_gpio = quark_gpio_shield_to_gpio(my_work->cs_pin);
+
+        for (i = 0; i < NUM_OF_COLUMNS; i++) {
+                gpio_set_value_cansleep(cs_gpio, 0);
+                barrier();
+                max7219_send_one_msg(i + 1, my_work->led[i]);
+                barrier();
+                gpio_set_value_cansleep(cs_gpio, 1);
+                mdelay(10);
+        }
+
+        kfree(work);
+}
+
+/**
+ * @brief send the pattern message to the MAX7219 through SPI bus.
+ * @param *msg, the message array.
+ * @param len, the length of the array.
+ * @param cs_pin, the chip select pin for latching the data.
+ * @return 0 on success, otherwise failed.
+ */
+int max7219_send_msg(uint8_t *msg, int length, int cs_pin) {
+        display_work_t *work;
+
+        work = (display_work_t *)kmalloc(sizeof(display_work_t), GFP_KERNEL);
+        if (!work)
+                return -ENOMEM;
+
+        INIT_WORK((struct work_struct *)work, max7219_work_function);
+        work->cs_pin = cs_pin;
+        memcpy(work->led, msg, length);
+        return queue_work(max7219_wq, (struct work_struct*)work);
+}
+
+/**
+ * @brief config the max7219 device with given chip select pin.
+ * @note we assume that every time a new chip select corresponding to a new
+ * LED Matrix, so it needs to be initilized.
+ * @param cs_pin, the chip select pin for latching the data.
+ */
+void max7219_device_config(int cs_pin) {
+        int cs_gpio;
+        int i;
+        cs_gpio = quark_gpio_shield_to_gpio(cs_pin);
+
+        for (i = 0; i < 4; ++i)
+        {
+                gpio_set_value_cansleep(cs_gpio, 0);
+                barrier();
+                max7219_send_one_msg(s_init_sequence[i][0], s_init_sequence[i][1]);
+                barrier();
+                gpio_set_value_cansleep(cs_gpio, 1);
+                mdelay(10);
+        }
 }
 
 /**
@@ -223,10 +330,21 @@ int max7219_device_init(void) {
         if (!master)
                 return -ENODEV;
 
+        // Avoid double init.
+        if (max7219_device != NULL)
+                return -EPERM;
+
+        max7219_wq = create_workqueue("display_pattern");
+        if (!max7219_wq)
+                return -ENOMEM;
+
         max7219_device = spi_new_device(master, &max7219_info);
         put_device(&master->dev);
-        if (!max7219_device)
+        if (!max7219_device) {
+                destroy_workqueue(max7219_wq);
+                max7219_wq = NULL;
                 return -ENODEV;
+        }
 
         max7219_device->bits_per_word = 8;
         max7219_device->max_speed_hz = 1000000;
@@ -256,8 +374,13 @@ int max7219_device_init(void) {
  * @brief remove the device when module is removed
  */
 void max7219_device_exit(void) {
+        // Double free will be handled by spi_unregister_device, kfree, and gpio_free.
         spi_unregister_device(max7219_device);
+        destroy_workqueue(max7219_wq);
         kfree(spidev.tx_buffer);
         max7219_teardown();
         printk(KERN_ALERT "Goodbye, unregister the device\n");
+        spidev.tx_buffer = NULL;
+        max7219_device = NULL;
+        max7219_wq = NULL;
 }
