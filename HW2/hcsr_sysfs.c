@@ -41,7 +41,7 @@ ssize_t hcsr_trigger_show(struct device *dev,
 ssize_t hcsr_trigger_store(struct device *dev,
                            struct device_attribute *attr,
                            const char *buf,
-                 size_t count) {
+                           size_t count) {
         int pin;
         int status;
         hcsr_dev_t *devp = dev_get_drvdata(dev);

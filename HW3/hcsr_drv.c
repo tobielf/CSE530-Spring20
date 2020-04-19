@@ -23,7 +23,7 @@
 
 #define HISTORY_SIZE    (5)                     /**< Sampling history size */
 #define DEFAULT_M       (7)                     /**< Default value for m */
-#define DEFAULT_DELTA   (60)                   /**< Default value for delta */
+#define DEFAULT_DELTA   (60)                    /**< Default value for delta */
 
 /**
  * @brief: handling the echo pin interrupt.
