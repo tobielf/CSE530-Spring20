@@ -31,5 +31,5 @@ clean:
 
 deploy-wifi:
 	tar czf programs.tar.gz hcsr04.ko hcsr-dev.ko hcsr04 tester sysfs-test.sh
-	scp programs.tar.gz root@10.0.1.100:/root/
+	scp programs.tar.gz root@10.0.1.100:/home/root/
 	ssh root@10.0.1.100 'tar xzf programs.tar.gz'

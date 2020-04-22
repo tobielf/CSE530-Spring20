@@ -93,6 +93,7 @@ int hcsr_isr_init(hcsr_dev_t *devp) {
         printk(KERN_INFO "irq no is: %d\n", devp->irq_no);
 
         // Check return value.
+        // https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git/commit/?id=ae731f8d0785
         return request_any_context_irq(devp->irq_no, isr_handler, 
                                 IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING,
                                 "hcsr04", (void *)&devp->sample_result);
@@ -195,18 +196,18 @@ static int hcsr_sampling_thread(void *data) {
                         // tell the compiler don't optimize the above code using Out of Order Execution.
                         barrier();
 
-                        printk(KERN_INFO "m %d, delta %d\n", m, delta);
+                        //printk(KERN_INFO "m %d, delta %d\n", m, delta);
                         // Now we can safely start trigger m times.
                         while (m > 0) {
                                 gpio_set_value_cansleep(trigger_pin, 1);
                                 udelay(10);
                                 gpio_set_value_cansleep(trigger_pin, 0);
                                 msleep(delta);
-                                printk(KERN_INFO "sampling %d\n", m);
+                                //printk(KERN_INFO "sampling %d\n", m);
                                 m--;
                         }
 
-                        printk(KERN_ALERT "Total interrupts %u\n", devp->sample_result.count);
+                        //printk(KERN_ALERT "Total interrupts %u\n", devp->sample_result.count);
                         // similary, we don't want the below code get executed before the sampling completed.
                         barrier();
 
@@ -219,7 +220,7 @@ static int hcsr_sampling_thread(void *data) {
                         res->measurement = hcsr_get_pulse_width(devp);
                         res->timestamp = rdtsc();
 
-                        printk(KERN_INFO "Result: %llu\n", res->measurement);
+                        //printk(KERN_INFO "Result: %llu\n", res->measurement);
 
                         // After sampling, we need to add to the result_queue buff.
                         ring_buff_put(devp->result_queue, res);
@@ -253,12 +254,12 @@ static unsigned long long hcsr_get_pulse_width(hcsr_dev_t *devp) {
                         printk(KERN_INFO "Something went wrong\n");
                         return 0;
                 }
-                printk(KERN_INFO "diff %llu\n", diff);
+                //printk(KERN_INFO "diff %llu\n", diff);
                 large = max(large, diff);
                 small = min(small, diff);
                 sum += diff;
         }
-        printk(KERN_INFO "large: %llu small: %llu sum %llu\n", large, small, sum);
+        //printk(KERN_INFO "large: %llu small: %llu sum %llu\n", large, small, sum);
         // Remove outlier.
         sum -= large;
         sum -= small;

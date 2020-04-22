@@ -126,7 +126,7 @@ static ssize_t hcsr_read(struct file *filp, char *buf,
 
         // Ring buffer is empty? (Block I/O)
         if (ring_buff_get(devp->result_queue, (void **)&result)) {
-                printk(KERN_INFO "No result, going to request one\n");
+                //printk(KERN_INFO "No result, going to request one\n");
                 // Someone working on it?
                 if (!hcsr_lock(devp)) {
                         // None, start a new task.
@@ -153,7 +153,7 @@ static ssize_t hcsr_write(struct file *filp, const char *buf,
 
         hcsr_dev_t *devp = (hcsr_dev_t *)filp->private_data;
 
-        printk(KERN_INFO "count: %d sizeof: %d\n", count, sizeof(int));
+        //printk(KERN_INFO "count: %d sizeof: %d\n", count, sizeof(int));
 
         // Invoke ioctl to setup the pins first.
         if (devp->settings.pins.trigger_pin == -1 || devp->settings.pins.echo_pin == -1)
@@ -170,10 +170,10 @@ static ssize_t hcsr_write(struct file *filp, const char *buf,
         if (hcsr_lock(devp))
                 return -EBUSY;
 
-        printk(KERN_INFO "The value is %d\n", value);
+        //printk(KERN_INFO "The value is %d\n", value);
         // clear all result_queue if the value is non-0.
         if (value) {
-                printk(KERN_ALERT "Going to clean up the ring buff\n");
+                //printk(KERN_ALERT "Going to clean up the ring buff\n");
                 ring_buff_removeall(devp->result_queue);
         }
 
