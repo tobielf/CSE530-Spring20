@@ -1,0 +1,264 @@
+diff -xsftp-config.json -uNr kernel.old/.config kernel/.config
+--- kernel.old/.config	2020-04-27 15:42:59.000000000 -0700
++++ kernel/.config	2020-04-27 22:29:18.000000000 -0700
+@@ -4479,3 +4479,4 @@
+ CONFIG_FONT_8x8=y
+ CONFIG_FONT_8x16=y
+ CONFIG_ARCH_HAS_SG_CHAIN=y
++CONFIG_DYNAMIC_DUMP_STACK=y
+diff -xsftp-config.json -uNr kernel.old/arch/x86/syscalls/syscall_32.tbl kernel/arch/x86/syscalls/syscall_32.tbl
+--- kernel.old/arch/x86/syscalls/syscall_32.tbl	2020-04-27 16:26:52.000000000 -0700
++++ kernel/arch/x86/syscalls/syscall_32.tbl	2020-04-27 04:53:33.000000000 -0700
+@@ -365,3 +365,5 @@
+ 356	i386	memfd_create		sys_memfd_create
+ 357	i386	bpf			sys_bpf
+ 358	i386	execveat		sys_execveat			stub32_execveat
++359	i386	insdump			sys_insdump
++360	i386	rmdump			sys_rmdump
+diff -xsftp-config.json -uNr kernel.old/include/linux/dynamic_dump_stack.h kernel/include/linux/dynamic_dump_stack.h
+--- kernel.old/include/linux/dynamic_dump_stack.h	1969-12-31 17:00:00.000000000 -0700
++++ kernel/include/linux/dynamic_dump_stack.h	2020-04-27 04:53:33.000000000 -0700
+@@ -0,0 +1,6 @@
++#ifndef __DYNAMIC_DUMP_STACK_H__
++#define __DYNAMIC_DUMP_STACK_H__
++
++typedef unsigned int dumpmode_t;
++
++#endif
+diff -xsftp-config.json -uNr kernel.old/lib/Kconfig.debug kernel/lib/Kconfig.debug
+--- kernel.old/lib/Kconfig.debug	2020-04-27 15:42:59.000000000 -0700
++++ kernel/lib/Kconfig.debug	2020-04-27 22:29:13.000000000 -0700
+@@ -1595,6 +1595,17 @@
+ 
+ endmenu # runtime tests
+ 
++menu "kernel hacking"
++
++config DYNAMIC_DUMP_STACK
++	bool "Enable the dynamic dump stack"
++	default y
++	depends on DEBUG_KERNEL && KPROBES
++	help
++	  Selecting this option enables the system call of 'insdump' and 'rmdump'.
++
++endmenu # kernel hacking
++
+ config PROVIDE_OHCI1394_DMA_INIT
+ 	bool "Remote debugging over FireWire early on boot"
+ 	depends on PCI && X86
+diff -xsftp-config.json -uNr kernel.old/lib/Makefile kernel/lib/Makefile
+--- kernel.old/lib/Makefile	2020-04-27 16:26:52.000000000 -0700
++++ kernel/lib/Makefile	2020-04-27 16:05:54.000000000 -0700
+@@ -196,3 +196,5 @@
+ clean-files	+= oid_registry_data.c
+ 
+ obj-$(CONFIG_UCS2_STRING) += ucs2_string.o
++
++obj-y += dynamic_dump_stack.o
+diff -xsftp-config.json -uNr kernel.old/lib/dynamic_dump_stack.c kernel/lib/dynamic_dump_stack.c
+--- kernel.old/lib/dynamic_dump_stack.c	1969-12-31 17:00:00.000000000 -0700
++++ kernel/lib/dynamic_dump_stack.c	2020-04-27 22:43:05.000000000 -0700
+@@ -0,0 +1,203 @@
++#include <linux/kernel.h>
++#include <linux/slab.h>
++
++#include <linux/kallsyms.h>
++#include <linux/syscalls.h>
++
++#include <linux/idr.h>
++#include <linux/kprobes.h>
++
++#include <linux/dynamic_dump_stack.h>
++
++#ifndef CONFIG_DYNAMIC_DUMP_STACK
++SYSCALL_DEFINE2(insdump, const char __user *, symbolname, dumpmode_t, mode)
++{
++        return -ENOSYS;
++}
++
++SYSCALL_DEFINE1(rmdump, unsigned int, dumpid)
++{
++        return -ENOSYS;
++}
++#else
++
++static DEFINE_IDA(dumpid_table);                /** Simple dump id implementation */
++static LIST_HEAD(kprobes_list);                 /** Kprobe list */
++static DEFINE_SPINLOCK(section_lock);           /** List spin lock */
++
++static int exit_pre_handler(struct kprobe *p, struct pt_regs *regs);
++
++typedef struct kprobe_list {
++        struct kprobe kp;                       /** Kprobe info */
++        dumpmode_t mode;                        /** Dump mode */
++        struct task_struct *pid;                /** Process id */
++        unsigned int dumpid;                    /** Dump id */
++        struct list_head next;                  /** Next node */
++} kprobe_list_t;
++
++static struct kprobe kp = {
++        .symbol_name    = "do_exit",            /** Probe on do_exit */
++        .addr           = NULL,
++        .offset         = 0x00,
++        .pre_handler    = exit_pre_handler,
++};
++
++/* kprobe pre_handler: called just before the probed instruction is executed */
++static int handler_pre(struct kprobe *p, struct pt_regs *regs)
++{
++        kprobe_list_t *node;
++        // printk(KERN_INFO "kprobe address: %p\n", p);
++        node = container_of(p, kprobe_list_t, kp);
++
++        if (node->mode == 0) {
++                // Check PID == current;
++                if (node->pid == current)
++                        dump_stack();
++        } else if (node->mode == 1) {
++                // Check PID parent.
++                if (node->pid->real_parent == current->real_parent)
++                        dump_stack();
++        } else {
++                /* A dump_stack() here will give a stack backtrace */
++                dump_stack();
++        }
++        return 0;
++}
++
++/* kprobe exit_pre_handler: called just before the probed instruction is executed */
++static int exit_pre_handler(struct kprobe *p, struct pt_regs *regs)
++{
++        // Remove the probe inserted by the process.
++        kprobe_list_t *pos, *tmp;
++
++        spin_lock(&section_lock);
++        list_for_each_entry_safe(pos, tmp, &kprobes_list, next) {
++                if (pos->pid == current) {
++                        unregister_kprobe(&pos->kp);
++                        printk(KERN_INFO "kprobe %s at %p unregistered\n", 
++                                        pos->kp.symbol_name, pos->kp.addr);
++                        ida_simple_remove(&dumpid_table, pos->dumpid);
++                        list_del(&pos->next);
++                        kfree(pos);
++                }
++        }
++        spin_unlock(&section_lock);
++
++        return 0;
++}
++
++static int __init init_syscall(void)
++{
++        int ret;
++
++        // Register do_exit handler
++        ret = register_kprobe(&kp);
++        if (ret < 0) {
++                printk(KERN_INFO "register_kprobe failed, returned %d\n", ret);
++                return -EFAULT;
++        }
++        printk(KERN_INFO "Planted kprobe at %p\n", kp.addr);
++
++        return 0;
++}
++
++SYSCALL_DEFINE2(insdump, const char __user *, symbolname, dumpmode_t, mode)
++{
++        /** Register kprobe based on the address getting from the user*/
++        int ret;
++        kprobe_list_t *obj;
++        unsigned long address;
++
++        printk("Hello world\n");
++
++        printk(KERN_INFO "Symbol name: %s\n", symbolname);
++
++        // Check symbolname is valid
++        address = kallsyms_lookup_name(symbolname);
++        if (!address) {
++                printk(KERN_ALERT "Invalid symbol name %s!\n", symbolname);
++                ret = -EINVAL;
++                goto err_exit;
++        }
++
++        // Check symbolname in text section.
++        ret = kernel_text_address(address);
++        if (!ret) {
++                printk(KERN_ALERT "%s Not in text section!\n", symbolname);
++                ret = -EINVAL;
++                goto err_exit;
++        }
++
++        // Allocate memory for kprobe.
++        obj = kzalloc(sizeof(kprobe_list_t), GFP_KERNEL);
++        if (obj == NULL) {
++                ret = -ENOMEM;
++                goto err_exit;
++        }
++
++        obj->kp.pre_handler   = handler_pre;
++        obj->kp.addr = (kprobe_opcode_t *)address;
++        // Use the "offset" field of struct kprobe
++        // if the offset into the symbol to install
++        // a probepoint is known. This field is used
++        // to calculate the probepoint.
++        obj->kp.offset = 0x00;
++
++        // Initialize the next node.
++        INIT_LIST_HEAD(&obj->next);
++
++        ret = register_kprobe(&obj->kp);
++        if (ret < 0) {
++                printk(KERN_INFO "register_kprobe failed, returned %d\n", ret);
++                goto err_obj;
++        }
++        printk(KERN_INFO "Planted kprobe at %p\n", obj->kp.addr);
++
++        obj->pid = current;
++        obj->mode = mode;
++        // add to the hlist
++        spin_lock(&section_lock);
++        ret = ida_simple_get(&dumpid_table, 0, 0, GFP_ATOMIC);
++        if (ret < 0) {
++                printk(KERN_INFO "ida_simple_get failed, returned %d\n", ret);
++                goto err_id;
++        }
++        obj->dumpid = ret;
++        list_add(&obj->next, &kprobes_list);
++        spin_unlock(&section_lock);
++        
++        return obj->dumpid;
++err_id:
++        spin_unlock(&section_lock);
++err_obj:
++        kfree(obj);
++err_exit:
++        return ret;
++}
++
++SYSCALL_DEFINE1(rmdump, unsigned int, dumpid)
++{
++        // Remove the probe inserted by the process.
++        kprobe_list_t *pos, *tmp;
++        int removed = -EINVAL;
++
++        spin_lock(&section_lock);
++        list_for_each_entry_safe(pos, tmp, &kprobes_list, next) {
++                if (pos->dumpid == dumpid && pos->pid == current) {
++                        unregister_kprobe(&pos->kp);
++                        printk(KERN_INFO "kprobe at %p unregistered\n", pos->kp.addr);
++                        ida_simple_remove(&dumpid_table, pos->dumpid);
++                        list_del(&pos->next);
++                        kfree(pos);
++                        removed = 0;
++                        break;
++                }
++        }
++        spin_unlock(&section_lock);
++
++        printk("Goodbye world\n");
++        return removed;
++}
++
++late_initcall(init_syscall);
++#endif
