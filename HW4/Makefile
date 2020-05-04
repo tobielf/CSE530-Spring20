@@ -15,6 +15,7 @@ APP = syscall
 TEST = tester
 
 obj-m:= mt530_drv.o
+obj-m+= mprobe.o
 
 all:
 	make ARCH=x86 CROSS_COMPILE=$(CROSS_COMPILE) -C $(KDIR) M=$(PWD) modules
@@ -25,6 +26,6 @@ clean:
 	make -C $(KDIR) M=$(PWD) clean
 
 deploy:
-	tar czf programs.tar.gz mt530_drv.ko mprobe.ko $(APP) $(TEST)
+	tar czf programs.tar.gz mprobe.ko mt530_drv.ko $(APP) $(TEST)
 	scp programs.tar.gz root@10.0.1.100:/home/root/mywork
 	ssh root@10.0.1.100 'tar xzf ./mywork/programs.tar.gz'
