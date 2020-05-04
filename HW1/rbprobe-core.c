@@ -217,7 +217,7 @@ static ssize_t rbprobe_write(struct file *filp, const char *buf,
         rb_probe_t probe;
         kprobe_list_t *obj;
 
-        obj = kmalloc(sizeof(kprobe_list_t), GFP_KERNEL);
+        obj = kzalloc(sizeof(kprobe_list_t), GFP_KERNEL);
         if (obj == NULL)
                 return -ENOMEM;
 
