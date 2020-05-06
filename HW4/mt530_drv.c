@@ -12,6 +12,10 @@
 #include <linux/cdev.h>
 #include <linux/fs.h>
 
+#include <linux/sched.h>
+
+#include <linux/gpio.h>
+
 #include <linux/uaccess.h>
 #include <asm/uaccess.h>
 
@@ -58,6 +62,7 @@ static int dev_open(struct inode *i, struct file *filp) {
         devp = container_of(i->i_cdev, struct ht_dev, cdev);
 
         filp->private_data = devp;
+        printk(KERN_INFO "######## Start a new test case. ########\n");
         return 0;
 }
 
@@ -65,6 +70,7 @@ static int dev_release(struct inode *i, struct file *filp) {
         struct ht_dev *devp = filp->private_data;
 
         printk(KERN_INFO "\n%s is closing\n", devp->name);
+        printk(KERN_INFO "######## Finished a test case. ########\n");
         return 0;
 }
 
@@ -73,11 +79,15 @@ static int dev_release(struct inode *i, struct file *filp) {
 // tells the calling program how many bytes have been successfully transferred.
 static ssize_t dev_read(struct file *filp, char *buf,
                         size_t count, loff_t *ppos) {
+        gpio_free(40);
         return 0;
 }
 
 static ssize_t dev_write(struct file *filp, const char *buf,
                 size_t count, loff_t *ppos) {
+        gpio_request_one(40, GPIOF_OUT_INIT_LOW, NULL);
+        printk(KERN_INFO "mt530 write called by %d\n", current->pid);
+        gpio_free(40);
         return 0;
 }
 

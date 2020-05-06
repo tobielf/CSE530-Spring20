@@ -8,16 +8,32 @@
 
 #include <pthread.h>
 
+#include <sys/sysinfo.h>
+
 #include "dynamic_dump_stack_lib.h"
 
 #ifndef GRADING
-#define TEST_SYMBOL1    "dev_write"                 /**< give a valid symbol name, you can change it*/
-#define TEST_SYMBOL2    "dev_read"                  /**< another symbol in the test driver */
+//#define TEST_SYMBOL1    "dev_write"                 /**< give a valid symbol name, you can change it*/
+//#define TEST_SYMBOL2    "dev_read"                  /**< another symbol in the test driver */
+#define TEST_SYMBOL1    "gpio_request_one"          /**< give a valid symbol name, you can change it*/
+#define TEST_SYMBOL2    "gpio_free"                 /**< another symbol in the test driver */
 #define TEST_SYMBOL3    "invalid_symbol_test"       /**< give an invalid symbol name. */
-#define TEST_SYMBOL4    "test_data_section_symbol"  /**< give a symbol name located outside text section */
+#define TEST_SYMBOL4    "sysctl_tcp_mem"            /**< give a symbol name located outside text section */
+//#define TEST_SYMBOL4    "test_data_section_symbol"  /**< give a symbol name located outside text section */
+
 #endif
 
 #define TEST_DRV        "/dev/mt530-0"
+
+long get_uptime()
+{
+    struct sysinfo s_info;
+    int error = sysinfo(&s_info);
+    if(error != 0) {
+        printf("code error = %d\n", error);
+    }
+    return s_info.uptime;
+}
 
 /**
 1. Correct insertion and removal
@@ -59,9 +75,14 @@
  *
  */
 void *case9_thread_0(void *arg) {
-    insdump(TEST_SYMBOL2, 1);
-    // wait for 10 seconds.
-    sleep(10);
+    int mode = *(int *)arg;
+    int sid = syscall(SYS_gettid);
+    int ret = 0;
+    ret = insdump(TEST_SYMBOL2, mode);
+    printf("dumpmode:%d PID:%d dumpid:%d\n", mode, sid, ret);
+    // wait for 5 seconds.
+    sleep(5);
+    rmdump(ret);
     return NULL;
 }
 
@@ -71,6 +92,9 @@ void *case9_thread_0(void *arg) {
 void *case9_thread_1(void *arg) {
     int fd;
     int cnt = 0;
+    int sid = syscall(SYS_gettid);
+
+    printf("[%lu] \n", get_uptime());
     fd = open(TEST_DRV, O_RDWR);
     if (fd < 0) {
         printf("File not exist, insert the driver?\n");
@@ -80,11 +104,12 @@ void *case9_thread_1(void *arg) {
     while (1) {
         cnt++;
         write(fd, &fd, 1);
-        printf("Please check dmesg for result.\n");
+        printf("Please check dmesg for result. PID:%d\n", sid);
         sleep(1);
-        if (cnt == 10)
+        if (cnt == 5)
             break;
     }
+    close(fd);
     return NULL;
 }
 
@@ -94,8 +119,11 @@ void *case9_thread_1(void *arg) {
 void *dump_by_child(void *arg) {
     // try to dump it.
     int fd = *(int *)arg;
+    int sid = syscall(SYS_gettid);
+    printf("[%lu] \n", get_uptime());
 
     write(fd, &fd, 0);
+    printf("Please check dmesg for result. PID:%d\n", sid);
     return NULL;
 }
 
@@ -105,12 +133,14 @@ void *dump_by_child(void *arg) {
 void *insert_by_child(void *arg) {
     int ret;
     int mode = *(int *)arg;
+    int sid = syscall(SYS_gettid);
     ret = insdump(TEST_SYMBOL1, mode);
     if (ret < 0) {
         printf("Failed! return: %d\n", ret);
         return NULL;
     }
-    sleep(10);
+    printf("dumpmode:%d PID:%d dumpid:%d\n", mode, sid, ret);
+    sleep(5);
     rmdump(ret);
     return NULL;
 }
@@ -128,9 +158,10 @@ void *case5_thread(void *arg) {
     if (dump_id_1 != dump_id_2) {
         printf("Passed! dumpid1:%d dumpid2:%d\n", dump_id_1, dump_id_2);
     } else {
-        printf("Failed! dumpid1:%d dumpid2:%d\n", dump_id_1, dump_id_2);
+        printf("Failed! Case 5. dumpid1:%d dumpid2:%d\n", dump_id_1, dump_id_2);
     }
-    printf("Please check dmesg for result.\n");
+    // rmdump(dump_id_1);
+    rmdump(dump_id_2);
     return NULL;
 }
 
@@ -145,9 +176,9 @@ void *case4_thread(void *arg) {
     // should fail.
     ret = rmdump(dumpid);
     if (ret < 0) {
-        printf("Passed! return: %d\n", ret);
+        printf("####Case 4:Passed! return: %d\n", ret);
     } else {
-        printf("Failed! return: %d\n", ret);
+        printf("####Case 4:Failed! return: %d\n", ret);
     }
 
     return NULL;
@@ -158,7 +189,9 @@ void test_suite_six(void) {
     int ret = 0;
     int fd;
     pthread_t debug;
+    int sid = syscall(SYS_gettid);
 
+    printf("####Case 12:Testing on dumpmode 2, inserted by parent process, dump by child process.\n");
     ret = insdump(TEST_SYMBOL1, 2);
     if (ret < 0) {
         printf("Insert dump failed, errno: %d\n", ret);
@@ -166,6 +199,7 @@ void test_suite_six(void) {
         printf("Insert dump success, dumpid: %d\n", ret);
     }
 
+    printf("[%lu] \n", get_uptime());
     fd = open(TEST_DRV, O_RDWR);
     if (fd < 0) {
         printf("File not exist, insert the driver?\n");
@@ -173,7 +207,7 @@ void test_suite_six(void) {
     }
 
     write(fd, &ret, 1);
-    printf("Please check dmesg for result.\n");
+    printf("Please check dmesg for result. PID:%d\n", sid);
 
     pthread_create(&debug, NULL, dump_by_child, (void *)&fd);
     pthread_join(debug, NULL);
@@ -183,27 +217,43 @@ void test_suite_six(void) {
 }
 
 void test_suite_five(void) {
-    // 11. dumpmode 1, inserted by child 1 process, dump by child 2 process.
+    // 11. dumpmode 0, inserted by child 1 process, dump by child 2 process. [Should print out nothing]
     pthread_t debug[2];
+    int mode = 0;
 
-    pthread_create(&debug[0], NULL, case9_thread_0, NULL);
+    pthread_create(&debug[0], NULL, case9_thread_0, (void *)&mode);
     pthread_create(&debug[1], NULL, case9_thread_1, NULL);
 
     pthread_join(debug[0], NULL);
     pthread_join(debug[1], NULL);
+
+    printf("Finished inserted by child 1, dump by child 2 under mode:%d\n", mode);
+
+    // 11. dumpmode 1, inserted by child 1 process, dump by child 2 process.
+    mode = 1;
+
+    pthread_create(&debug[0], NULL, case9_thread_0, (void *)&mode);
+    pthread_create(&debug[1], NULL, case9_thread_1, NULL);
+
+    pthread_join(debug[0], NULL);
+    pthread_join(debug[1], NULL);
+
+    printf("Finished inserted by child 1, dump by child 2 under mode:%d\n", mode);
 }
 
 //[ToDo]
 void test_suite_four(void) {
     // 9. dumpmode 0, inserted by child process, dump by parent. [should print out nothing].
-    // 10. dumpmode 1, inserted by child process, dump by parent. [should print out nothing].
+    // 10. dumpmode 1, inserted by child process, dump by parent. [should print out nothing] [Or one].
     // 12. dumpmode 2, inserted by child process, dump by parent.
     int fd;
     int mode;
     pthread_t debug;
+    int sid = syscall(SYS_gettid);
     for (mode = 0; mode < 3; mode++) {
         pthread_create(&debug, NULL, insert_by_child, (void *)&mode);
 
+        printf("[%lu] \n", get_uptime());
         fd = open(TEST_DRV, O_RDWR);
         if (fd < 0) {
             printf("File not exist, insert the driver?\n");
@@ -212,7 +262,7 @@ void test_suite_four(void) {
 
         sleep(1);
         write(fd, &mode, 1);
-        printf("Please check dmesg for result.\n");
+        printf("Please check dmesg for result. PID:%d\n", sid);
         close(fd);
 
         pthread_join(debug, NULL);
@@ -225,7 +275,9 @@ void test_suite_three(void) {
     int ret = 0;
     int fd;
     pthread_t debug;
+    int sid = syscall(SYS_gettid);
 
+    printf("####Case 6:Testing on dumpmode 0, inserted by parent process, dump by itself.\n");
     ret = insdump(TEST_SYMBOL1, 0);
     if (ret < 0) {
         printf("Insert dump failed, errno: %d\n", ret);
@@ -233,6 +285,7 @@ void test_suite_three(void) {
         printf("Insert dump success, dumpid: %d\n", ret);
     }
 
+    printf("[%lu] \n", get_uptime());
     fd = open(TEST_DRV, O_RDWR);
     if (fd < 0) {
         printf("File not exist, insert the driver?\n");
@@ -240,16 +293,18 @@ void test_suite_three(void) {
     }
 
     write(fd, &ret, 1);
-    printf("Please check dmesg for result.\n");
+    printf("Please check dmesg for result. PID:%d\n", sid);
 
     // 7. dumpmode 0, inserted by parent process, dump by child process.
+    printf("####Case 7:Testing on dumpmode 0, inserted by parent process, dump by child process.\n");
     pthread_create(&debug, NULL, dump_by_child, (void *)&fd);
     pthread_join(debug, NULL);
 
     close(fd);
     rmdump(ret);
 
-    // 8. dumpmode 1, inserted by parent process, dump by child. [should print out nothing].
+    // 8. dumpmode 1, inserted by parent process, dump by child. [should print out nothing]. [Or one?]
+    printf("####Case 8:Testing on dumpmode 1, inserted by parent process, dump by child.\n");
     ret = insdump(TEST_SYMBOL1, 1);
     if (ret < 0) {
         printf("Insert dump failed, errno: %d\n", ret);
@@ -257,6 +312,7 @@ void test_suite_three(void) {
         printf("Insert dump success, dumpid: %d\n", ret);
     }
 
+    printf("[%lu] \n", get_uptime());
     fd = open(TEST_DRV, O_RDWR);
     if (fd < 0) {
         printf("File not exist, insert the driver?\n");
@@ -272,9 +328,10 @@ void test_suite_three(void) {
 
 void test_suite_two(void) {
     int ret;
+    int fd;
     pthread_t debug;
     // 4. insert a valid symbol and remove by non-owner. [thread]
-    printf("Testing on insert valid symbol by the owner and remove by the non-owner\n");
+    printf("####Case 4:Testing on insert valid symbol by the owner and remove by the non-owner\n");
     ret = insdump(TEST_SYMBOL1, 0);
     if (ret < 0) {
         printf("Failed! return: %d\n", ret);
@@ -286,33 +343,49 @@ void test_suite_two(void) {
     pthread_join(debug, NULL);
 
     // 5. insert a valid symbol and exit the program. [thread]
+    printf("####Case 5:Testing on insert a valid symbol and exit the program.\n");
+    fd = open(TEST_DRV, O_RDWR);
+    if (fd < 0) {
+        printf("File not exist, insert the driver?\n");
+        return;
+    }
     printf("Testing on insert valid symbol and exit the program\n");
     pthread_create(&debug, NULL, case5_thread, NULL);
     pthread_join(debug, NULL);
+
+    printf("[%lu] \n", get_uptime());
+    // Should print out only one during these period.
+    sleep(1);
+    write(fd, &ret, 1);
+    sleep(1);
+    printf("[%lu] \n", get_uptime());
+
+    close(fd);
+    rmdump(ret);
 }
 
 void test_suite_one(void) {
     int ret;
     // 1. test on invalid symbol address.
-    printf("Testing on invalid symbol.\n");
+    printf("####Case 1: Testing on invalid symbol.\n");
     ret = insdump(TEST_SYMBOL3, 1);
     if (ret < 0) {
-        printf("Passed! return: %d\n", ret);
+        printf("####Case 1:Passed! return: %d\n", ret);
     } else {
-        printf("Failed!\n");
+        printf("####Case 1:Failed! Case 1.\n");
     }
 
     // 2. test on symbol address not on the text section.
-    printf("Testing on non-text section symbol.\n");
+    printf("####Case 2:Testing on non-text section symbol.\n");
     ret = insdump(TEST_SYMBOL4, 1);
     if (ret < 0) {
-        printf("Passed! return: %d\n", ret);
+        printf("####Case 2:Passed! return: %d\n", ret);
     } else {
-        printf("Failed\n");
+        printf("####Case 2:Failed! Case 2.\n");
     }
 
     // 3. insert a valid symbol and remove by the owner.
-    printf("Testing on insert and remove a valid symbol by the owner\n");
+    printf("####Case 3:Testing on insert and remove a valid symbol by the owner\n");
     ret = insdump(TEST_SYMBOL1, 2);
     if (ret < 0) {
         printf("Failed! return: %d\n", ret);
@@ -321,9 +394,9 @@ void test_suite_one(void) {
     }
     ret = rmdump(ret);
     if (ret < 0) {
-        printf("Failed! return: %d\n", ret);
+        printf("####Case 3:Failed!. return: %d\n", ret);
     } else {
-        printf("Passed!\n");
+        printf("####Case 3:Passed!\n");
     }
 }
 
