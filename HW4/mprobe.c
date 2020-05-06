@@ -70,8 +70,8 @@ static int handler_pre(struct kprobe *p, struct pt_regs *regs)
         return 0;
 }
 
-static void clean_up(struct kprobe_list_t *p) {
-        unregister_kprobe(&obj->kp);
+static void clean_up(struct kprobe_list *p) {
+        unregister_kprobe(&p->kp);
         kfree(p);
 }
 
