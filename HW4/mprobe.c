@@ -5,48 +5,19 @@
  * @reference http://shell-storm.org/blog/Trace-and-debug-the-Linux-Kernel-functons/kprobe_example.c
  */
 #include <linux/kernel.h>
-#include <linux/module.h>
-#include <linux/device.h>
 #include <linux/slab.h>
-#include <linux/init.h>
-#include <linux/cdev.h>
-#include <linux/fs.h>
-#include <linux/stddef.h>
-
-#include <linux/version.h>
-
-#include <linux/uaccess.h>
-#include <asm/uaccess.h>
 
 #include <linux/kprobes.h>
 #include <linux/kallsyms.h>
-
 #include <linux/anon_inodes.h>
 
-#include <asm/ptrace.h>
-
-#include "common.h"
-#include "dynamic_dump_stack.h"
-
-#define DEVICE_NAME "mprobe"
-#define CLASS_NAME "kprobedrv"
 #define ANON_INODE_NAME "dynamic_dump_stack"
-#define DEVICE_NUMBER (1)
 
 typedef struct kprobe_list {
         struct kprobe kp;                       /** Kprobe info */
         struct task_struct *pid;                /** Process id */
         dumpmode_t mode;                        /** Dump mode */
 } kprobe_list_t;
-
-struct mprobe_dev {
-        struct cdev cdev;                       /** The cdev structure */
-};
-
-static dev_t dev_num = 0;
-static struct class *s_dev_class = NULL;
-static struct device *s_dev[DEVICE_NUMBER];
-static struct mprobe_dev dev;
 
 /* kprobe pre_handler: called just before the probed instruction is executed */
 static int handler_pre(struct kprobe *p, struct pt_regs *regs)
@@ -89,6 +60,85 @@ static int dynamic_dump_stack_release(struct inode *i, struct file *filp) {
         return 0;
 }
 
+static int do_insdump(const char *symbolname, dumpmode_t mode) {
+        int ret;
+        kprobe_list_t *obj;
+        unsigned long address;
+
+        printk(KERN_INFO "Symbol name: %s\n", symbolname);
+
+        address = kallsyms_lookup_name(symbolname);
+        if (!address) {
+                printk(KERN_ALERT "Invalid symbol name!\n");
+                return -EINVAL;
+        }
+
+        obj = kzalloc(sizeof(kprobe_list_t), GFP_KERNEL);
+        if (obj == NULL) {
+                return -ENOMEM;
+        }
+
+        obj->kp.pre_handler   = handler_pre;
+        obj->kp.addr = (kprobe_opcode_t *)address;
+        // Use the "offset" field of struct kprobe
+        // if the offset into the symbol to install
+        // a probepoint is known. This field is used
+        // to calculate the probepoint.
+        obj->kp.offset = 0x00;
+
+        ret = register_kprobe(&obj->kp);
+        if (ret < 0) {
+                printk(KERN_INFO "register_kprobe failed, returned %d\n", ret);
+                goto err_obj;
+        }
+        printk(KERN_INFO "Planted kprobe at %p\n", obj->kp.addr);
+
+        obj->mode = mode;
+        obj->pid = current;
+
+        ret = anon_inode_getfd(ANON_INODE_NAME, &fops, (void *)obj, O_CLOEXEC);
+        if (ret < 0) {
+                printk(KERN_INFO "anon_inode_getfd failed, ret:%d\n", ret);
+                unregister_kprobe(&obj->kp);
+                goto err_obj;
+        }
+
+        return ret;
+
+err_obj:
+        kfree(obj);
+        return ret;
+}
+
+#include <linux/module.h>
+#include <linux/device.h>
+#include <linux/init.h>
+#include <linux/cdev.h>
+#include <linux/fs.h>
+#include <linux/stddef.h>
+
+#include <linux/version.h>
+
+#include <linux/uaccess.h>
+#include <asm/uaccess.h>
+#include <asm/ptrace.h>
+
+#include "common.h"
+#include "dynamic_dump_stack.h"
+
+#define DEVICE_NAME "mprobe"
+#define CLASS_NAME "kprobedrv"
+#define DEVICE_NUMBER (1)
+
+struct mprobe_dev {
+        struct cdev cdev;                       /** The cdev structure */
+};
+
+static dev_t dev_num = 0;
+static struct class *s_dev_class = NULL;
+static struct device *s_dev[DEVICE_NUMBER];
+static struct mprobe_dev dev;
+
 static int mprobe_open(struct inode *, struct file *);
 static int mprobe_release(struct inode *, struct file *);
 static ssize_t mprobe_write(struct file *, const char *, size_t, loff_t *);
@@ -117,61 +167,15 @@ static int mprobe_release(struct inode *i, struct file *filp) {
 static ssize_t mprobe_write(struct file *filp, const char *buf, 
                         size_t count, loff_t * off) {
         /** Register kprobe based on the address getting from the user*/
-        int ret;
-        int dumpid;
         dump_data_t d;
-        kprobe_list_t *obj;
-        unsigned long address;
-        // struct kallsym_iter iter;
 
         count = min(sizeof(dump_data_t), count);
         // get offset from user
         if (copy_from_user(&d, buf, count)) {
-                ret = -EFAULT;
-                goto err_exit;
+                return -EFAULT;
         }
 
-        printk(KERN_INFO "Symbol name: %s\n", d.symbol_name);
-
-        address = kallsyms_lookup_name(d.symbol_name);
-        if (!address) {
-                printk(KERN_ALERT "Invalid symbol name!\n");
-                ret = -EINVAL;
-                goto err_exit;
-        }
-
-        obj = kzalloc(sizeof(kprobe_list_t), GFP_KERNEL);
-        if (obj == NULL) {
-                ret = -ENOMEM;
-                goto err_exit;
-        }
-
-        obj->kp.pre_handler   = handler_pre;
-        obj->kp.symbol_name   = NULL;
-        obj->kp.addr = (kprobe_opcode_t *)address;
-        // Use the "offset" field of struct kprobe
-        // if the offset into the symbol to install
-        // a probepoint is known. This field is used
-        // to calculate the probepoint.
-        obj->kp.offset = 0x00;
-
-        ret = register_kprobe(&obj->kp);
-        if (ret < 0) {
-                printk(KERN_INFO "register_kprobe failed, returned %d\n", ret);
-                goto err_obj;
-        }
-        printk(KERN_INFO "Planted kprobe at %p\n", obj->kp.addr);
-
-        obj->mode = d.mode;
-        obj->pid = current;
-        dumpid = anon_inode_getfd(ANON_INODE_NAME, &fops, (void *)obj, O_CLOEXEC);
-        
-        return dumpid;
-
-err_obj:
-        kfree(obj);
-err_exit:
-        return ret;
+        return do_insdump(d.symbol_name, d.mode);
 }
 
 static long mprobe_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
