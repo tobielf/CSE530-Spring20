@@ -35,6 +35,19 @@ long get_uptime()
     return s_info.uptime;
 }
 
+void get_id_info()
+{
+    int pid  = syscall(SYS_getpid);
+    int ppid = syscall(SYS_getppid);
+    int uid  = syscall(SYS_getuid);
+    int euid = syscall(SYS_geteuid);
+    int tid  = syscall(SYS_gettid);
+    int egid = syscall(SYS_getegid);
+
+    printf("My info: PID:%d, PPID:%d, UID:%d, EUID:%d, TID:%d, EGID:%d\n",
+                     pid,    ppid,    uid,    euid,    tid,    egid );
+}
+
 /**
 1. Correct insertion and removal
     including valid/invalid symbol addresses
@@ -78,6 +91,7 @@ void *case9_thread_0(void *arg) {
     int mode = *(int *)arg;
     int sid = syscall(SYS_gettid);
     int ret = 0;
+    get_id_info();
     ret = insdump(TEST_SYMBOL2, mode);
     printf("dumpmode:%d PID:%d dumpid:%d\n", mode, sid, ret);
     // wait for 5 seconds.
@@ -94,6 +108,7 @@ void *case9_thread_1(void *arg) {
     int cnt = 0;
     int sid = syscall(SYS_gettid);
 
+    get_id_info();
     printf("[%lu] \n", get_uptime());
     fd = open(TEST_DRV, O_RDWR);
     if (fd < 0) {
@@ -220,6 +235,8 @@ void test_suite_five(void) {
     // 11. dumpmode 0, inserted by child 1 process, dump by child 2 process. [Should print out nothing]
     pthread_t debug[2];
     int mode = 0;
+
+    get_id_info();
 
     pthread_create(&debug[0], NULL, case9_thread_0, (void *)&mode);
     pthread_create(&debug[1], NULL, case9_thread_1, NULL);
@@ -377,7 +394,7 @@ void test_suite_one(void) {
 
     // 2. test on symbol address not on the text section.
     printf("####Case 2:Testing on non-text section symbol.\n");
-    ret = insdump(TEST_SYMBOL4, 1);
+    ret = insdump(TEST_SYMBOL4, 0);
     if (ret < 0) {
         printf("####Case 2:Passed! return: %d\n", ret);
     } else {
