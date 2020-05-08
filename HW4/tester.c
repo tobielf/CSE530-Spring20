@@ -12,6 +12,7 @@
 #include <stdio.h>
 
 #include <sys/ioctl.h>
+#include "dynamic_dump_stack_lib.h"
 
 #include "common.h"
 
@@ -65,12 +66,29 @@ int main(int argc, char const *argv[]) {
         probe.mode = strtoul(argv[3], NULL, 0);
         printf("symbol_name: %s\n", probe.symbol_name);
         printf("mode: %d\n", probe.mode);
-        write(fd_probe, &probe, sizeof(dump_data_t));
+        int dump = write(fd_probe, &probe, sizeof(dump_data_t));
+        printf("Dump id:%d\n", dump);
+        close(dump);
     } else if (strcmp("clear", argv[1]) == 0) {
         if (ioctl(fd_probe, MP530_CLEAR_PROBES, NULL) == -1) {
             printf("%d\n", errno);
         }
         printf("cleared all probes\n");
+    } else if (strcmp("insdump", argv[1]) == 0) {
+        if (argc < 4)
+            return EINVAL;
+        int dump = insdump(argv[2], strtoul(argv[3], NULL, 0));
+        if (dump < 0) {
+            printf("insdump failed\n");
+            return dump;
+        }
+        printf("insdump dumpid:%d\n", dump);
+        int ret;
+        ret = close(dump);
+        if (ret < 0) {
+            printf("close failed, ret:%d\n", ret);
+        }
+        printf("close ret:%d\n", ret);
     }
 
     close(fd_probe);
