@@ -8,13 +8,13 @@ diff -xsftp-config.json -uNr kernel.old/.config kernel/.config
 +CONFIG_DYNAMIC_DUMP_STACK=y
 diff -xsftp-config.json -uNr kernel.old/arch/x86/syscalls/syscall_32.tbl kernel/arch/x86/syscalls/syscall_32.tbl
 --- kernel.old/arch/x86/syscalls/syscall_32.tbl	2020-04-27 22:58:09.000000000 -0700
-+++ kernel/arch/x86/syscalls/syscall_32.tbl	2020-04-27 04:53:33.000000000 -0700
++++ kernel/arch/x86/syscalls/syscall_32.tbl	2020-05-06 17:49:01.000000000 -0700
 @@ -365,3 +365,5 @@
  356	i386	memfd_create		sys_memfd_create
  357	i386	bpf			sys_bpf
  358	i386	execveat		sys_execveat			stub32_execveat
 +359	i386	insdump			sys_insdump
-+360	i386	rmdump			sys_rmdump
++360	i386	rmdump			sys_close
 diff -xsftp-config.json -uNr kernel.old/include/linux/dynamic_dump_stack.h kernel/include/linux/dynamic_dump_stack.h
 --- kernel.old/include/linux/dynamic_dump_stack.h	1969-12-31 17:00:00.000000000 -0700
 +++ kernel/include/linux/dynamic_dump_stack.h	2020-04-27 04:53:33.000000000 -0700
@@ -57,16 +57,16 @@ diff -xsftp-config.json -uNr kernel.old/lib/Makefile kernel/lib/Makefile
 +obj-y += dynamic_dump_stack.o
 diff -xsftp-config.json -uNr kernel.old/lib/dynamic_dump_stack.c kernel/lib/dynamic_dump_stack.c
 --- kernel.old/lib/dynamic_dump_stack.c	1969-12-31 17:00:00.000000000 -0700
-+++ kernel/lib/dynamic_dump_stack.c	2020-05-03 18:19:19.000000000 -0700
-@@ -0,0 +1,145 @@
++++ kernel/lib/dynamic_dump_stack.c	2020-05-07 17:15:51.000000000 -0700
+@@ -0,0 +1,141 @@
 +#include <linux/kernel.h>
 +#include <linux/slab.h>
 +
 +#include <linux/kallsyms.h>
-+#include <linux/syscalls.h>
-+
 +#include <linux/anon_inodes.h>
 +#include <linux/kprobes.h>
++
++#include <linux/syscalls.h>
 +
 +#include <linux/dynamic_dump_stack.h>
 +
@@ -77,34 +77,41 @@ diff -xsftp-config.json -uNr kernel.old/lib/dynamic_dump_stack.c kernel/lib/dyna
 +{
 +        return -ENOSYS;
 +}
-+
-+SYSCALL_DEFINE1(rmdump, unsigned int, dumpid)
-+{
-+        return -ENOSYS;
-+}
 +#else
 +
 +typedef struct kprobe_list {
 +        struct kprobe kp;                       /** Kprobe info */
++        pid_t owner;                            /** Owner PID */
++        pid_t parent;                           /** Owner's parent PID */
 +        dumpmode_t mode;                        /** Dump mode */
-+        struct task_struct *pid;                /** Process id */
 +} kprobe_list_t;
 +
 +static void clean_up(struct kprobe_list *p) {
++        printk(KERN_INFO "Removing kprobe at %p\n", p->kp.addr);
 +        unregister_kprobe(&p->kp);
 +        kfree(p);
 +}
 +
 +static int dynamic_dump_stack_release(struct inode *, struct file *);
++static int dummy_flush(struct file *f, fl_owner_t id) {
++        printk(KERN_INFO "Flush? in open.c line 1067?\n");
++        return 0;
++}
 +
 +static struct file_operations fops = {
 +        .owner = THIS_MODULE,
-+        .release = dynamic_dump_stack_release,      
++        .release = dynamic_dump_stack_release,
++        .flush = dummy_flush,      
 +};
 +
 +static int dynamic_dump_stack_release(struct inode *i, struct file *filp) {
 +        kprobe_list_t *obj = (kprobe_list_t *)filp->private_data;
-+        printk(KERN_INFO "Removing kprobe at %p\n", obj->kp.addr);
++
++        // Can't be close by non-owner.
++        // For light-weight process, we are sharing file descriptor.
++        // if (obj->pid != current) {
++        //         return -EPERM;
++        // }
 +        clean_up(obj);
 +        return 0;
 +}
@@ -113,17 +120,22 @@ diff -xsftp-config.json -uNr kernel.old/lib/dynamic_dump_stack.c kernel/lib/dyna
 +static int handler_pre(struct kprobe *p, struct pt_regs *regs)
 +{
 +        kprobe_list_t *node;
++
 +        // printk(KERN_INFO "kprobe address: %p\n", p);
 +        node = container_of(p, kprobe_list_t, kp);
 +
 +        if (node->mode == 0) {
 +                // Check PID == current;
-+                if (node->pid == current)
++                if (node->owner == current->pid)
 +                        dump_stack();
 +        } else if (node->mode == 1) {
 +                // Check PID parent.
-+                if (node->pid->real_parent == current->real_parent)
++                if (node->owner == current->pid ||
++                    (node->parent == current->tgid && 
++                     node->owner != current->tgid  && 
++                     node->parent != current->pid)) {
 +                        dump_stack();
++                }
 +        } else {
 +                /* A dump_stack() here will give a stack backtrace */
 +                dump_stack();
@@ -131,38 +143,22 @@ diff -xsftp-config.json -uNr kernel.old/lib/dynamic_dump_stack.c kernel/lib/dyna
 +        return 0;
 +}
 +
-+SYSCALL_DEFINE2(insdump, const char __user *, symbolname, dumpmode_t, mode)
-+{
-+        /** Register kprobe based on the address getting from the user*/
++static int do_insdump(const char *symbolname, dumpmode_t mode) {
 +        int ret;
 +        kprobe_list_t *obj;
 +        unsigned long address;
 +
-+        printk("Hello world\n");
-+
 +        printk(KERN_INFO "Symbol name: %s\n", symbolname);
 +
-+        // Check symbolname is valid
 +        address = kallsyms_lookup_name(symbolname);
 +        if (!address) {
-+                printk(KERN_ALERT "Invalid symbol name %s!\n", symbolname);
-+                ret = -EINVAL;
-+                goto err_exit;
++                printk(KERN_ALERT "Invalid symbol name!\n");
++                return -EINVAL;
 +        }
 +
-+        // Check symbolname in text section.
-+        ret = kernel_text_address(address);
-+        if (!ret) {
-+                printk(KERN_ALERT "%s Not in text section!\n", symbolname);
-+                ret = -EINVAL;
-+                goto err_exit;
-+        }
-+
-+        // Allocate memory for kprobe.
 +        obj = kzalloc(sizeof(kprobe_list_t), GFP_KERNEL);
 +        if (obj == NULL) {
-+                ret = -ENOMEM;
-+                goto err_exit;
++                return -ENOMEM;
 +        }
 +
 +        obj->kp.pre_handler   = handler_pre;
@@ -180,27 +176,27 @@ diff -xsftp-config.json -uNr kernel.old/lib/dynamic_dump_stack.c kernel/lib/dyna
 +        }
 +        printk(KERN_INFO "Planted kprobe at %p\n", obj->kp.addr);
 +
-+        obj->pid = current;
 +        obj->mode = mode;
++        obj->owner = current->pid;
++        obj->parent = current->tgid;
 +
 +        ret = anon_inode_getfd(ANON_INODE_NAME, &fops, (void *)obj, O_CLOEXEC);
 +        if (ret < 0) {
++                printk(KERN_INFO "anon_inode_getfd failed, ret:%d\n", ret);
 +                unregister_kprobe(&obj->kp);
 +                goto err_obj;
 +        }
-+        
++
 +        return ret;
 +
 +err_obj:
 +        kfree(obj);
-+err_exit:
 +        return ret;
 +}
 +
-+SYSCALL_DEFINE1(rmdump, unsigned int, dumpid)
++SYSCALL_DEFINE2(insdump, const char __user *, symbolname, dumpmode_t, mode)
 +{
-+        // Remove the probe inserted by the process.
-+        printk("Goodbye world\n");
-+        return sys_close(dumpid);
++        /** Register kprobe based on the address getting from the user*/
++        return do_insdump(symbolname, mode);
 +}
 +#endif
