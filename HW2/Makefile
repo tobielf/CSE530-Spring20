@@ -28,6 +28,7 @@ all:
 
 clean:
 	make -C $(KDIR) M=$(PWD) clean
+	rm $(APP) $(TEST)
 
 deploy-wifi:
 	tar czf programs.tar.gz hcsr04.ko hcsr-dev.ko hcsr04 tester sysfs-test.sh

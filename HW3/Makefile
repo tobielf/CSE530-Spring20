@@ -14,7 +14,7 @@ EXTRA_CFLAGS += -g -Wall
 LDLIBS = -L$(SROOT)/usr/lib
 CCFLAGS = -I$(SROOT)/usr/include/libnl3
 
-SPI = spi_tester
+TEST = spi_tester
 APP = heart
 
 obj-m = heartbeat.o
@@ -22,13 +22,14 @@ heartbeat-objs := heartbeat-core.o gpio_config.o max7219.o hcsr_drv.o ring_buff.
 
 all:
 	make ARCH=x86 CROSS_COMPILE=$(CROSS_COMPILE) -C $(KDIR) M=$(PWD) modules
-	$(CC) -Wall -o $(SPI) main.c
+	$(CC) -Wall -o $(TEST) main.c
 	$(CC) -Wall -o $(APP) heartbeat.c $(CCFLAGS) -lnl-genl-3 -lnl-3 -lpthread
 
 clean:
 	make -C $(KDIR) M=$(PWD) clean
+	rm $(APP) $(TEST)
 
 deploy:
-	tar czf programs.tar.gz led.sh spi.sh $(APP) $(TEST) $(SPI) heartbeat.ko
+	tar czf programs.tar.gz led.sh spi.sh $(APP) $(TEST) heartbeat.ko
 	scp programs.tar.gz root@10.0.1.100:/home/root
 	ssh root@10.0.1.100 'tar xzf programs.tar.gz'

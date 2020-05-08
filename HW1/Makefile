@@ -29,6 +29,7 @@ all:
 
 clean:
 	make -C $(KDIR) M=$(PWD) clean
+	rm $(APP) $(TEST)
 
 deploy-wifi:
 	tar czf programs.tar.gz rb530_drv.ko $(TEST) $(APP) rbprobe.ko

@@ -24,6 +24,7 @@ all:
 
 clean:
 	make -C $(KDIR) M=$(PWD) clean
+	rm $(APP) $(TEST)
 
 deploy:
 	tar czf programs.tar.gz mprobe.ko mt530_drv.ko $(APP) $(TEST)
