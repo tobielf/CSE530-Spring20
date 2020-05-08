@@ -11,11 +11,14 @@
 #include <linux/kallsyms.h>
 #include <linux/anon_inodes.h>
 
+#include "dynamic_dump_stack.h"
+
 #define ANON_INODE_NAME "dynamic_dump_stack"
 
 typedef struct kprobe_list {
         struct kprobe kp;                       /** Kprobe info */
-        struct task_struct *pid;                /** Process id */
+        pid_t owner;                            /** Owner PID */
+        pid_t parent;                           /** Owner's parent PID */
         dumpmode_t mode;                        /** Dump mode */
 } kprobe_list_t;
 
@@ -28,12 +31,16 @@ static int handler_pre(struct kprobe *p, struct pt_regs *regs)
 
         if (node->mode == 0) {
                 // Check PID == current;
-                if (node->pid == current)
+                if (node->owner == current->pid)
                         dump_stack();
         } else if (node->mode == 1) {
                 // Check PID parent.
-                if (node->pid->real_parent == current->real_parent)
+                if (node->owner == current->pid ||
+                    (node->parent == current->tgid && 
+                     node->owner != current->tgid  && 
+                     node->parent != current->pid)) {
                         dump_stack();
+                }
         } else {
                 /* A dump_stack() here will give a stack backtrace */
                 dump_stack();
@@ -94,7 +101,8 @@ static int do_insdump(const char *symbolname, dumpmode_t mode) {
         printk(KERN_INFO "Planted kprobe at %p\n", obj->kp.addr);
 
         obj->mode = mode;
-        obj->pid = current;
+        obj->owner = current->pid;
+        obj->parent = current->tgid;
 
         ret = anon_inode_getfd(ANON_INODE_NAME, &fops, (void *)obj, O_CLOEXEC);
         if (ret < 0) {
@@ -124,7 +132,6 @@ err_obj:
 #include <asm/ptrace.h>
 
 #include "common.h"
-#include "dynamic_dump_stack.h"
 
 #define DEVICE_NAME "mprobe"
 #define CLASS_NAME "kprobedrv"
